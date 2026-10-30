@@ -31,7 +31,7 @@ export type PrefillChange =
   | { readonly action: 'set'; readonly entry: PrefillFileEntry }
   | { readonly action: 'remove'; readonly path: string }
 
-/** Durable provenance for one baseline or append-only update. */
+/** Durable source record for one baseline or append-only update. */
 export interface PrefillContextSource {
   kind: 'prefill-context'
   /** Turn whose pre-step produced this scan. */
