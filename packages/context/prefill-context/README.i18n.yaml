@@ -1,0 +1,64 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/context/prefill-context/README.md
+/:
+  en: 557955cc4fdccd15
+  zh: 0e9d51749445ca8b
+/deepseek-ai-dsh-prefill-context:
+  en: ddc5b0310cc69ee3
+  zh: 9722cdd6cd83fe17
+/deepseek-ai-dsh-prefill-context/summary:
+  en: 3e72bba01e214090
+  zh: 4f6adcde55d928d9
+/deepseek-ai-dsh-prefill-context/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-prefill-context/use-this-package:
+  en: be7c08d9f876e644
+  zh: 2226ee43baf9082c
+/deepseek-ai-dsh-prefill-context/use-this-package/choosing-a-budget:
+  en: 0a1823915b706a27
+  zh: 2ddf093407e58619
+/deepseek-ai-dsh-prefill-context/use-this-package/configuration:
+  en: b17e7770033c7d22
+  zh: 8b8a152cdc188e14
+/deepseek-ai-dsh-prefill-context/use-this-package/enabling-the-row:
+  en: f7d10d774ea01fcc
+  zh: d60cbd5ffd1468b4
+/deepseek-ai-dsh-prefill-context/understand-the-implementation:
+  en: 2d21fa2aad5a729d
+  zh: c1493f8d4d807471
+/deepseek-ai-dsh-prefill-context/understand-the-implementation/design-concept:
+  en: 2455a0d3e0df7b5c
+  zh: 92ea8a03c3da98c2
+/deepseek-ai-dsh-prefill-context/understand-the-implementation/traversal-and-change-detection:
+  en: ee08bfdda3a6c0bb
+  zh: c4de7b95fdcf997c
+/deepseek-ai-dsh-prefill-context/understand-the-implementation/source-map:
+  en: 8d93af9d85230095
+  zh: 393dca338d399ea9
+/deepseek-ai-dsh-prefill-context/further-exploration:
+  en: 64fb575f80609af5
+  zh: a3a1c7b795f27698
+/deepseek-ai-dsh-prefill-context/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-prefill-context/model-experience/workspace-snapshot-and-updates:
+  en: f6c0ab37363d4b9e
+  zh: aa76c98ee0cbb93e
+/deepseek-ai-dsh-prefill-context/model-experience/workspace-snapshot-and-updates/what-the-model-sees:
+  en: 1ea3fe57de42307d
+  zh: 8ff732297eab28b3
+/deepseek-ai-dsh-prefill-context/model-experience/workspace-snapshot-and-updates/token-effect:
+  en: 89cc2ce22a43bd1c
+  zh: a728c469f24c7087
+/deepseek-ai-dsh-prefill-context/model-experience/workspace-snapshot-and-updates/kv-cache-effect:
+  en: abf06a8095d3d099
+  zh: ca1bc3c0532ce030
+/deepseek-ai-dsh-prefill-context/known-limitations-and-deferred-work:
+  en: 81f76fa9008f75a1
+  zh: bfc752f7525b2d84
+/deepseek-ai-dsh-prefill-context/known-limitations-and-deferred-work/dev-note:
+  en: a3239d95cf34428f
+  zh: 3f05f14e25847630

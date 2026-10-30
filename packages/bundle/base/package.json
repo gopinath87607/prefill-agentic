@@ -121,6 +121,7 @@
     "@deepseek-ai/dsh-web-search-deepseek": "workspace:*",
     "@deepseek-ai/dsh-workflow-ptc": "workspace:*",
     "@deepseek-ai/dsh-agent-instructions": "workspace:*",
+    "@deepseek-ai/dsh-prefill-context": "workspace:*",
     "@deepseek-ai/dsh-ptc-runtime-node": "workspace:*",
     "@deepseek-ai/dsh-plugin-manager": "workspace:*",
     "@deepseek-ai/dsh-authorization": "workspace:*",

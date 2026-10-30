@@ -1,0 +1,20 @@
+# Enables the prefill-first workspace snapshot for local runs:
+#   pnpm dsh --profile headless --patch engines.patch.yml --patch prefill.patch.yml "task"
+#
+# Measured against the local Maya server (2026-10-30, deepseek-v4.1-flash):
+# - Its tokenizer counts ~3.4 characters per token, so charsPerToken follows
+#   the observed ratio instead of the generic default of 4.
+# - Cold prompt processing runs at roughly 1,000 tokens/s: a 400k-token
+#   baseline needs about 7 minutes once, and the engine keeps the KV resident.
+# - Later turns reuse the whole earlier prefix (159,262 of 176,869 tokens on
+#   the second turn) and process only newly appended content, at ~430 tokens/s.
+# - 400k leaves room under the 800,000-token compaction trigger for the
+#   ~150,000-token verbatim tail plus conversation. 700k plus that tail
+#   exceeds the trigger, so the snapshot is re-injected into compaction churn.
+- id: prefill-context
+  name: '@deepseek-ai/dsh-prefill-context'
+  disabled: false
+  config:
+    budgetTokens: 400000
+    deltaBudgetTokens: 16000
+    charsPerToken: 3.4

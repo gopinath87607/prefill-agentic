@@ -2711,6 +2711,50 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-plugin-package-inventory-deepseek -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-prefill-context -->
+<a id="deepseek-aidsh-prefill-context"></a>
+
+## `@deepseek-ai/dsh-prefill-context`
+
+- `inject`: `agents` · `workingDirectory` · `sessionProjections`
+- `source`: [`packages/context/prefill-context/src/config.ts:202`](../packages/context/prefill-context/src/config.ts)
+
+```ts config-catalog
+/** Row configuration for workspace prefill snapshots. */
+export interface Config {
+  /** Token budget for the first snapshot; the header reserve is subtracted from it. */
+  budgetTokens?: number
+  /** Token budget for the updated contents appended in one later turn. */
+  deltaBudgetTokens?: number
+  /** Fixed characters-per-token estimate used for every budget decision. */
+  charsPerToken?: number
+  /** Tokens reserved for the frame header and scan notes. */
+  reserveTokens?: number
+  /** Largest file read into a snapshot; larger files are reported and skipped. */
+  maxFileBytes?: number
+  /** Largest number of eligible files collected in one scan. */
+  maxFiles?: number
+  /** Largest number of directory entries visited in one scan. */
+  maxVisitedEntries?: number
+  /** Largest directory depth below the workspace root. */
+  maxDepth?: number
+  /** Whether a new turn rescans for changes; `never` injects only the first snapshot. */
+  refresh?: PrefillRefresh
+  /** Lowercase extensions treated as text; a leading dot is added when omitted. */
+  includeExtensions?: string[]
+  /** Exact filenames included regardless of extension. */
+  includeFileNames?: string[]
+  /** Exact directory names never traversed. */
+  excludedDirectories?: string[]
+  /** Exact filenames never included, checked before the include rules. */
+  excludedFileNames?: string[]
+}
+
+/** How often the workspace is rescanned for content changes. */
+export type PrefillRefresh = 'turn' | 'never'
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-prefill-context -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-ptc-runtime-node -->
 <a id="deepseek-aidsh-ptc-runtime-node"></a>
 

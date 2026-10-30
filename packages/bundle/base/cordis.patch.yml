@@ -308,6 +308,12 @@
       config:
         maxBytes: 65536
 
+    # Prefill-first workspace snapshots are opt-in: a large baseline trades
+    # prompt tokens for cacheable context, so each deployment chooses its budget.
+    - id: prefill-context
+      name: '@deepseek-ai/dsh-prefill-context'
+      disabled: true
+
     - id: skill
       name: '@deepseek-ai/dsh-skill'
 

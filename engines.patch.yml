@@ -1,0 +1,69 @@
+# Routes the satarata and maya inference engines through the pi-ai adapter.
+# Endpoints, model ids, and credentials come from the launch environment, so no
+# secret or deployment-specific URL enters the repository:
+#
+#   export SATARATA_BASE_URL=https://engine.example/v1
+#   export SATARATA_MODEL=<served model id>
+#   export SATARATA_API_KEY=<key>
+#   export MAYA_BASE_URL=https://engine.example/v1
+#   export MAYA_MODEL=<served model id>
+#   export MAYA_API_KEY=<key>
+#
+# Then choose the default route for a run:
+#   export DSH_PROVIDER=satarata DSH_MODEL="$SATARATA_MODEL"
+#
+# Run:
+#   pnpm dsh --profile headless --patch engines.patch.yml --patch prefill.patch.yml "task"
+#
+# Both routes default to the OpenAI Chat Completions protocol. Set
+# SATARATA_API or MAYA_API to openai-completions, openai-responses, or
+# anthropic-messages when an engine speaks another protocol. The thinking
+# format defaults to DeepSeek's reasoning_content field; change or remove
+# `compat` when the engine reports reasoning differently. `contextWindow` sizes
+# compaction and the prefill budget, so it must describe the deployed model: a
+# value larger than the engine accepts fails at request time, not at load.
+#
+# A large prefill can occupy the engine for minutes before it emits the first
+# stream chunk, and the adapter's default 300,000 ms idle timeout kills such a
+# request mid-prefill. Measured on the local Maya server (2026-10-30): a fresh
+# 150k-token snapshot processed in 149 seconds (~1,069 tokens/s), and new
+# tokens appended to a cached prefix processed at ~430 tokens/s. Both routes
+# allow SATARATA_STREAM_IDLE_MS or MAYA_STREAM_IDLE_MS to override the
+# 20-minute default, enough for a fresh 400k-token snapshot at the measured
+# rate (roughly 7 minutes).
+- id: llm-pi-ai
+  config:
+    providers:
+      satarata:
+        displayName: Satarata
+        api: !!js process.env.SATARATA_API ?? 'openai-completions'
+        baseURL: !!js process.env.SATARATA_BASE_URL
+        apiKeyEnv: SATARATA_API_KEY
+        streamIdleTimeoutMs: !!js Number(process.env.SATARATA_STREAM_IDLE_MS ?? 1200000)
+        compat:
+          thinkingFormat: deepseek
+        models:
+          - id: !!js process.env.SATARATA_MODEL
+            name: !!js process.env.SATARATA_MODEL
+            contextWindow: !!js Number(process.env.SATARATA_CONTEXT_WINDOW ?? 1000000)
+            maxTokens: !!js Number(process.env.SATARATA_MAX_TOKENS ?? 65536)
+      maya:
+        displayName: Maya
+        api: !!js process.env.MAYA_API ?? 'openai-completions'
+        baseURL: !!js process.env.MAYA_BASE_URL
+        apiKeyEnv: MAYA_API_KEY
+        streamIdleTimeoutMs: !!js Number(process.env.MAYA_STREAM_IDLE_MS ?? 1200000)
+        compat:
+          thinkingFormat: deepseek
+        models:
+          - id: !!js process.env.MAYA_MODEL
+            name: !!js process.env.MAYA_MODEL
+            contextWindow: !!js Number(process.env.MAYA_CONTEXT_WINDOW ?? 1000000)
+            maxTokens: !!js Number(process.env.MAYA_MAX_TOKENS ?? 65536)
+
+# Agents created by entry points use this route. Set both variables to run the
+# other engine; a provider without its model id fails at load.
+- id: agent-default-model
+  config:
+    provider: !!js process.env.DSH_PROVIDER ?? 'satarata'
+    model: !!js "process.env.DSH_MODEL ?? (process.env.DSH_PROVIDER === 'maya' ? process.env.MAYA_MODEL : process.env.SATARATA_MODEL)"
