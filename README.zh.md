@@ -7,7 +7,7 @@ Prefill Agentic 是面向长上下文引擎的 [DeepSeek Harness](https://github
 ## 本分支新增
 
 - `packages/context/prefill-context`：一个 Cordis 插件，通过文件服务扫描工作目录，把快照渲染为一条用户消息，并把每次文件变化记录到会话日志中。
-- `prefill.patch.yml`：启用该插件的覆盖配置，包含 400,000 token 的基线和每轮 16,000 token 的增量，以及针对本地 Maya 分词器的每 token 3.4 字符估计。
+- `prefill.patch.yml`：启用该插件的覆盖配置，包含 400,000 token 的基线、每轮 16,000 token 的增量、针对本地 Maya 分词器的每 token 3.4 字符估计、遵循 .gitignore 的扫描、有界路径索引，以及仅主代理快照。
 - `engines.patch.yml`：把 `maya` 和 `satarata` 提供方接入 pi-ai 适配器，并从启动环境读取端点、模型 id 和凭据的覆盖配置。
 
 ## 预填充的工作方式
@@ -69,11 +69,39 @@ powershell -ExecutionPolicy Bypass -File C:\dsh-tools\start-dsh.ps1
     budgetTokens: 400000
     deltaBudgetTokens: 16000
     charsPerToken: 3.4
+    maxFileTokens: 32000
+    includePathIndex: true
+    indexBudgetTokens: 8000
+    respectGitignore: true
+    position: before
+    agents: main
+    guidance: true
 ```
 
-`budgetTokens` 决定第一个快照的大小，`deltaBudgetTokens` 限制后续单轮追加的新增和删除内容，`charsPerToken` 在所有预算判断中把字符换算为 token。包的 README 记录了文件上限、深度、刷新模式、包含规则和排除项；基础 bundle 默认禁用该行，部署方用自己的预算显式启用。
+`budgetTokens` 决定第一个快照的大小，`deltaBudgetTokens` 限制后续单轮追加的新增和删除内容，`charsPerToken` 在所有预算判断中把字符换算为 token。`maxFileTokens` 会跳过单个过大的文件，而不是让它占满基线。`indexBudgetTokens` 在 `budgetTokens` 之外额外列出被跳过内容的路径，供读取工具打开。`respectGitignore` 在扫描时应用每个目录的 `.gitignore`，`position: before` 让最新的用户消息保持最后，`agents: main` 避免把大基线重复放进子代理会话，`guidance` 注册固定的系统提示段落，要求模型复用快照。包的 README 记录了其余文件上限、深度、刷新模式、包含规则和排除项；基础 bundle 默认禁用该行，部署方用自己的预算显式启用。
 
 让基线保持在压缩触发点以下。在 1M token 的引擎上，400,000 token 为逐字尾部和对话留出空间；接近模型窗口的快照会被压缩替换，缓存复用也随之结束。
+
+## 限制自动续轮
+
+Web 的 `standard` 预设挂载了 goal 工具，基础 bundle 又加载了 goal 轮次驱动器。模型创建的 goal 会自行继续，直到完成、暂停或达到轮次上限；goal 服务的默认上限是 256 轮。prefill 插件从不发起轮次——它只向模型本来就会执行的步骤添加快照消息——所以回答完后仍在工作的代理通常对应一个活动 goal 或普通的工具调用链，而不是快照本身。`repeat-tool-reminder` 只在重复调用时提醒，从不阻止。
+
+用 `/goal` 查看当前 goal，用 `/goal pause` 或 `/goal clear` 停止它。要限制 profile 中的每个 goal，在 goal 行设置默认上限：
+
+```yaml
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+  config:
+    defaultMaxGoalRounds: 5
+```
+
+要在保留 goal 跟踪的同时关闭自动 goal 轮次，禁用驱动器行：
+
+```yaml
+- id: goal-round-driver
+  name: '@deepseek-ai/dsh-goal-round-driver'
+  disabled: true
+```
 
 ## 配置引擎
 

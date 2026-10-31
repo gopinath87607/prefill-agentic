@@ -7,7 +7,7 @@ Prefill Agentic is a fork of [DeepSeek Harness](https://github.com/deepseek-ai/d
 ## What this fork adds
 
 - `packages/context/prefill-context`: a Cordis plugin that scans the working directory through the file service, renders the snapshot as one user message, and records every file transition in the session log.
-- `prefill.patch.yml`: the overlay that enables the plugin with a 400,000-token baseline, a 16,000-token per-turn delta, and a 3.4 characters-per-token estimate for the local Maya tokenizer.
+- `prefill.patch.yml`: the overlay that enables the plugin with a 400,000-token baseline, a 16,000-token per-turn delta, a 3.4 characters-per-token estimate for the local Maya tokenizer, gitignore-aware scanning, a bounded path index, and main-agent-only snapshots.
 - `engines.patch.yml`: the overlay that routes the `maya` and `satarata` providers through the pi-ai adapter and reads endpoints, model ids, and credentials from the launch environment.
 
 ## How prefill works
@@ -69,11 +69,39 @@ Edit `prefill.patch.yml`; the launcher reads it at startup:
     budgetTokens: 400000
     deltaBudgetTokens: 16000
     charsPerToken: 3.4
+    maxFileTokens: 32000
+    includePathIndex: true
+    indexBudgetTokens: 8000
+    respectGitignore: true
+    position: before
+    agents: main
+    guidance: true
 ```
 
-`budgetTokens` sizes the first snapshot, `deltaBudgetTokens` caps new and removed content appended in one later turn, and `charsPerToken` converts characters to tokens for every budget decision. The package README documents the file caps, depth, refresh mode, include rules, and exclusions, and the base bundle keeps the row disabled so a deployment opts in with its own budget.
+`budgetTokens` sizes the first snapshot, `deltaBudgetTokens` caps new and removed content appended in one later turn, and `charsPerToken` converts characters to tokens for every budget decision. `maxFileTokens` skips a single oversized file instead of letting it consume the baseline. `indexBudgetTokens` is additional to `budgetTokens` and names the skipped paths so the read tool can open them. `respectGitignore` applies each directory's `.gitignore` while scanning, `position: before` keeps the newest user message last, `agents: main` keeps the large baseline out of subagent sessions, and `guidance` registers the static system-prompt paragraph that tells the model to reuse the snapshot. The package README documents the remaining file caps, depth, refresh mode, include rules, and exclusions, and the base bundle keeps the row disabled so a deployment opts in with its own budget.
 
 Keep the baseline below the compaction trigger. On a 1M-token engine, 400,000 tokens leaves room for the verbatim tail and the conversation; a snapshot close to the model window is replaced by compaction, which ends the cache reuse.
+
+## Keep automatic continuation bounded
+
+The Web `standard` preset mounts the goal tools, and the base bundle loads the goal round driver. A model-created goal continues by itself until it completes, is paused, or reaches its round cap; the goal service default is 256 rounds. The prefill plugin never starts a turn — it only adds snapshot messages to steps the model already takes — so an agent that keeps working after finishing its answer is usually an active goal or an ordinary tool-call chain, not the snapshot. `repeat-tool-reminder` only warns at repeated calls and never blocks.
+
+Inspect the current goal with `/goal`, then stop it with `/goal pause` or `/goal clear`. To bound every goal in a profile, set the default cap on the goal row:
+
+```yaml
+- id: goal
+  name: '@deepseek-ai/dsh-goal'
+  config:
+    defaultMaxGoalRounds: 5
+```
+
+To switch automatic goal rounds off while keeping goals trackable, disable the driver row:
+
+```yaml
+- id: goal-round-driver
+  name: '@deepseek-ai/dsh-goal-round-driver'
+  disabled: true
+```
 
 ## Configure engines
 

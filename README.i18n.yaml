@@ -6,8 +6,8 @@
   en: 64b267ef96919b9b
   zh: ad4a14bb5326b76f
 /prefill-agentic/what-this-fork-adds:
-  en: e9385a3f12b1e69e
-  zh: c76e8d25c5934b16
+  en: 7b1731699c90645a
+  zh: dd0c1adce81b47b2
 /prefill-agentic/how-prefill-works:
   en: d520d11c29025955
   zh: 7583b89f52e0993a
@@ -21,8 +21,11 @@
   en: 31814aa370c974ae
   zh: 291d0c80b18e7ebc
 /prefill-agentic/configure-the-snapshot:
-  en: 45204a2494dc762c
-  zh: eb5a884f7bf1472c
+  en: c2fea0cafd030370
+  zh: de5af79d94804b67
+/prefill-agentic/keep-automatic-continuation-bounded:
+  en: 4fa52e62804c3b3f
+  zh: 46874b9a469f3655
 /prefill-agentic/configure-engines:
   en: 6cfac1f222436221
   zh: 4beac9d9cfd6ae10

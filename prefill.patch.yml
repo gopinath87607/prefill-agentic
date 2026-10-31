@@ -18,3 +18,21 @@
     budgetTokens: 400000
     deltaBudgetTokens: 16000
     charsPerToken: 3.4
+    # One file larger than this is skipped by estimated tokens, so a generated
+    # fixture cannot consume the whole baseline.
+    maxFileTokens: 32000
+    # Names of skipped files stay usable through the read tool without paying
+    # their contents in the snapshot. The index is additional to budgetTokens.
+    includePathIndex: true
+    indexBudgetTokens: 8000
+    # .gitignore layers keep build output and vendored copies out unless a
+    # nested file re-includes them.
+    respectGitignore: true
+    # Put the baseline ahead of the first prompt and keep the newest user
+    # message last in the request.
+    position: before
+    # Subagents get their own narrow tasks; repeating the 400k baseline in
+    # every delegation would multiply cold prefills. They still read files
+    # with their tools.
+    agents: main
+    guidance: true
