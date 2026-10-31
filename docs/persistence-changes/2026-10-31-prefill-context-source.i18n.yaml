@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-31-prefill-context-source.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-31-prefill-context-source.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-31-prefill-context-source:
+  en: a796c53a1cc3dc5f
+  zh: 7c48ffb430040901
+/2026-10-31-prefill-context-source/summary:
+  en: b7a550241252fee7
+  zh: edee5febc852e60b
+/2026-10-31-prefill-context-source/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-31-prefill-context-source/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-31-prefill-context-source/compatibility:
+  en: acf31e3360064db5
+  zh: 2d1feb03c96a8445
+/2026-10-31-prefill-context-source/verification:
+  en: 5baf377e32a14c30
+  zh: c79e2ab3ff5c30a9
+/2026-10-31-prefill-context-source/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

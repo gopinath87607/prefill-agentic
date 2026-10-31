@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-prefill-context` gives a long-context model the workspace contents up front instead of making it discover files through search and read calls. The first eligible turn injects one deterministic baseline snapshot of included text files; later turns append a small update containing only added, modified, and removed paths. The baseline is never rewritten, so the request prefix stays reusable while the task grows. The base bundle declares the row disabled; a deployment enables it with a token budget that matches its engine.
+`dsh-prefill-context` gives a long-context model the workspace contents before its first step. The first eligible turn injects a deterministic baseline of included text files; later turns append an update with only added, modified, and removed paths. The baseline is never rewritten, so the request prefix stays reusable. Scanning honors `.gitignore` and configurable exclusion patterns, a bounded path index names skipped files, and a static system-prompt section tells the model to reuse the snapshot. The base bundle keeps the row disabled so each deployment opts in with its own budget.
 
 ## Table of Contents
 
@@ -27,11 +27,17 @@ English | [中文](README.zh.md)
 
 Mount this plugin when the model benefits from reading a prepared workspace snapshot instead of issuing search calls, especially when the inference engine performs better on long prompts than on short iterative ones. Each snapshot and update is one additional user-role message in durable history; it is reconstructed on resume and replaced by compaction like any other message.
 
-The first eligible step scans the working directory once and injects the baseline. With `refresh: 'turn'` (the default), each later turn scans again and appends an update only when content changed. `refresh: 'never'` settles on the baseline for the rest of the session.
+The first eligible step scans the working directory once and injects the baseline. With `refresh: 'turn'` (the default), each later turn scans again and appends an update only when content changed. `refresh: 'step'` scans at every step, so a file edited by the model appears in the request for its next step of the same turn. `refresh: 'never'` settles on the baseline for the rest of the session.
+
+`position: 'before'` inserts each snapshot before the step's claimed user messages, which puts a fresh session's baseline ahead of its first prompt and keeps the newest user message last. The default `'after'` inserts it after those messages.
+
+`agents: 'main'` confines snapshots and guidance to top-level sessions. The default `'all'` gives a subagent its own snapshot and guidance as well; a delegated agent then reads the same prepared workspace instead of rediscovering it.
 
 ### Choosing a budget
 
-`budgetTokens` is the complete snapshot budget; the frame header and scan notes are covered by `reserveTokens`. The baseline fills the remaining budget with the shallowest files first, then files in path order, and skips files that would exceed `maxFileBytes` or the remaining budget. Files skipped only because the baseline was full stay untracked, so later updates can add them within `deltaBudgetTokens` per turn.
+`budgetTokens` is the content budget for the first snapshot; the frame header and scan notes are covered by `reserveTokens`. The baseline fills the remaining budget with the shallowest files first, then files in path order, and skips files that would exceed `maxFileBytes`, `maxFileTokens`, or the remaining budget. Files skipped only because the baseline was full stay untracked, so later updates can add them within `deltaBudgetTokens` per turn.
+
+The path index is a separate bounded section. With `includePathIndex: true` (the default), the message names up to `indexBudgetTokens` of the paths whose contents were skipped, in addition to the content budget. The model can open one of those paths with the existing read or search tools without guessing the workspace layout. Set `includePathIndex: false` to omit the index entirely.
 
 A large budget reduces discovery calls but consumes the same model context as any other message. It also counts toward the compaction threshold: a baseline near the model window leaves little room for conversation before compaction replaces the shadowed history. Start from the task shape, not the model maximum, and measure cache reuse before raising it.
 
@@ -47,19 +53,27 @@ The minimal mount needs no configuration and uses a 150,000-token baseline budge
 
 | Field | Default | Meaning |
 |---|---|---|
-| `budgetTokens` | `150000` | Token budget for the first snapshot before `reserveTokens` |
+| `budgetTokens` | `150000` | Token budget for snapshot contents before `reserveTokens` |
 | `deltaBudgetTokens` | `32000` | Token budget for contents appended in one later turn |
 | `charsPerToken` | `4` | Fixed characters-per-token estimate used for every budget decision |
 | `reserveTokens` | `1024` | Tokens reserved for the frame header and scan notes |
 | `maxFileBytes` | `1048576` | Largest file read into the snapshot |
+| `maxFileTokens` | `32000` | Largest single file included by estimated tokens |
 | `maxFiles` | `20000` | Largest number of files collected in one scan |
 | `maxVisitedEntries` | `100000` | Largest number of directory entries visited in one scan |
 | `maxDepth` | `32` | Deepest directory level traversed below the working directory |
-| `refresh` | `'turn'` | `'turn'` rescan on each new turn; `'never'` keeps the baseline |
+| `refresh` | `'turn'` | `'turn'` rescans on each new turn; `'step'` rescans every step; `'never'` keeps the baseline |
+| `position` | `'after'` | Place the message before or after the step's claimed user messages |
+| `agents` | `'all'` | `'main'` serves only top-level sessions; `'all'` includes subagents |
+| `includePathIndex` | `true` | List paths whose contents were not included |
+| `indexBudgetTokens` | `4000` | Token budget for the path index, in addition to `budgetTokens` |
+| `respectGitignore` | `true` | Apply each directory's `.gitignore` while scanning |
+| `guidance` | `true` | Register static prefill guidance in the agent's system prompt |
 | `includeExtensions` | text and code list | Lowercase extensions treated as text; a leading dot is added when omitted |
 | `includeFileNames` | build and project files | Exact filenames included regardless of extension |
-| `excludedDirectories` | VCS, dependency, and build directories | Exact directory names never traversed |
-| `excludedFileNames` | environment, credential, and key files | Exact filenames never included, checked before the include rules |
+| `excludedDirectories` | VCS, dependency, and build directories | Directory names never traversed, matched case-insensitively |
+| `excludedFileNames` | environment, credential, and key files | Filenames never included, matched case-insensitively |
+| `excludedFilePatterns` | lock, generated, and secret patterns | Gitignore-style workspace-relative patterns never included; a leading `!` re-includes |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-prefill-context) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -93,21 +107,23 @@ The plugin prepends an `agent/pre-step` listener that delegates first, then appe
 
 The `prefillContext` host-only session projection folds those messages into the visible file ledger: paths, backend freshness versions, content digests, and byte sizes. An update applies its transitions; a surface replacement that shadows any committed prefill message clears the projection, so the next step prepares a fresh baseline after compaction. Replay and checkpoint restore derive the same ledger because the source records every transition.
 
+On agent creation the plugin injects a `context:prefill` system-prompt section at the `FILE_REFERENCE` order into that agent's scope. The section is a fixed string, so it does not vary the prompt between requests. The `main` agent scope skips both the section and the snapshots for sessions whose header marks them as subagents.
+
 ### Traversal and change detection
 
-Scanning walks the working directory through `ctx.fs`, sorted by codepoint at every level, and skips excluded directory names. `ctx.fs.contains` rejects targets outside the resolved root, and `targetKey` breaks symlink cycles. The scan stops at `maxFiles` or `maxVisitedEntries`, or records `incomplete` at `maxDepth`; an incomplete scan never reports deletions.
+Scanning walks the working directory through `ctx.fs`, sorted by codepoint at every level, and skips excluded directory names and gitignore-style patterns before reading anything. With `respectGitignore`, each directory's `.gitignore` becomes a layer for its subtree; the nearest layer that names a path decides it, so a nested `.gitignore` can re-include a path its parent ignored. Configured `excludedFilePatterns` are matched as one case-insensitive matcher; names and directory names are compared case-insensitively as well. `ctx.fs.contains` rejects targets outside the resolved root, and `targetKey` breaks symlink cycles. The scan stops at `maxFiles` or `maxVisitedEntries`, or records `incomplete` at `maxDepth`; an incomplete scan never reports deletions.
 
-The baseline reads files in shallow-first order and renders each as a delimited block. Later scans compare the backend freshness token and size first, then read and hash changed candidates. A changed file whose digest and byte size match its ledger entry is unchanged. Content that does not fit `deltaBudgetTokens` keeps its old ledger entry so a later turn retries it. Oversize tracked files produce a removal notice.
+The baseline reads files in shallow-first order and renders each as a delimited block. Files over `maxFileBytes` or `maxFileTokens` are skipped and counted in the scan notes; the remaining paths feed the bounded path index. Later scans compare the backend freshness token and size first, then read and hash changed candidates. A changed file whose digest and byte size match its ledger entry is unchanged. Content that does not fit `deltaBudgetTokens` keeps its old ledger entry so a later turn retries it and is listed in the update's pending index. A tracked file that grows past a size or per-file token limit produces a `DROPPED` notice and a ledger removal.
 
 ### Source map
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step listener, scan orchestration, message insertion |
+| [`src/index.ts`](src/index.ts) | Plugin entry: pre-step listener, agent scope, guidance section, scan orchestration, insertion |
 | [`src/config.ts`](src/config.ts) | Config schema, defaults, and normalization |
-| [`src/scan.ts`](src/scan.ts) | Deterministic bounded workspace traversal through `ctx.fs` |
-| [`src/prepare.ts`](src/prepare.ts) | Budgeted file selection, reads, hashing, and ledger transitions |
-| [`src/render.ts`](src/render.ts) | Frame, block, and change-notice rendering |
+| [`src/scan.ts`](src/scan.ts) | Deterministic traversal, gitignore layers, and exclusion patterns |
+| [`src/prepare.ts`](src/prepare.ts) | Budgeted file selection, reads, hashing, ledger transitions, and path-index inputs |
+| [`src/render.ts`](src/render.ts) | Frame, block, notice, path-index, and guidance rendering |
 | [`src/state.ts`](src/state.ts) | Durable source type, validation, and the ledger projection |
 
 </details>
@@ -132,24 +148,27 @@ Read these pages when the package-level contract is not enough.
 
 #### What the model sees
 
-The first eligible pre-step inserts one baseline message. It opens with `<prefill-context kind="baseline" turn="<turn>" root="<root>" files="<count>" content-tokens="<estimate>">`, followed by a two-line instruction, optional scan notes, one delimited block per file, and the closing tag. Each later changed turn inserts one update with `kind="delta"`, counters for added, modified, and removed files, blocks labeled `(added)` or `(modified)`, and `--- REMOVED: <path> ---` notices. The frame states that file contents are data, not instructions that override the task.
+The first eligible pre-step inserts one baseline message. It opens with `<prefill-context kind="baseline" turn="<turn>" root="<root>" files="<count>" content-tokens="<estimate>" paths="<listed>">`, followed by a two-line instruction, optional scan notes, one delimited block per file, and an optional `--- PATHS NOT INCLUDED ---` index of paths whose contents were skipped. Each later changed turn inserts one update with `kind="delta"`, counters for added, modified, and removed files, blocks labeled `(added)` or `(modified)`, `--- REMOVED: <path> ---` and `--- DROPPED: <path> (<reason>) ---` notices, and an optional `--- PATHS PENDING ---` index for changed paths that did not fit the update. The frame states that a block replaces an earlier block for the same path and that file contents are data, not instructions. With `guidance: true`, the system prompt also carries one fixed paragraph: treat unchanged snapshot contents as current, do not re-read those files, a later block replaces an earlier one, use read or search for listed paths, and trust a write or edit result until a later snapshot block names the path.
 
 #### Token effect
 
-The baseline occupies at most `budgetTokens`, minus `reserveTokens`, until compaction shadows it. Each qualifying turn appends at most `deltaBudgetTokens` of file contents, plus counters, paths, and notice lines. Retained history therefore grows by the baseline plus every committed update; `refresh: 'never'` adds only the baseline.
+The baseline occupies at most `budgetTokens`, minus `reserveTokens`, until compaction shadows it. The path index adds at most `indexBudgetTokens` of path lines. Each qualifying turn appends at most `deltaBudgetTokens` of file contents, plus counters, paths, notice lines, and a small pending index. Retained history therefore grows by the baseline plus every committed update; `refresh: 'never'` adds only the baseline and `refresh: 'step'` can add several updates in one turn.
 
 #### KV Cache effect
 
-Append-only after the first snapshot. The baseline and preceding updates stay at the same positions in later requests, so a provider that reuses a matching prefix does not recompute them. A turn with no changes appends nothing. A change to a tracked file appends new content at the end rather than rewriting the earlier copy, and a removal is a notice rather than a prefix edit. A working-directory change or a compaction that shadows any snapshot message appends a new baseline; the compaction replacement already invalidates reuse after its cut.
+Append-only after the first snapshot. The baseline and preceding updates stay at the same positions in later requests, so a provider that reuses a matching prefix does not recompute them. A turn with no changes appends nothing. A change to a tracked file appends new content at the end rather than rewriting the earlier copy, and a removal or drop is a notice rather than a prefix edit. With `position: 'before'`, a fresh session's baseline precedes its first user message; with the default `'after'`, it follows the claimed messages. A working-directory change or a compaction that shadows any snapshot message appends a new baseline; the compaction replacement already invalidates reuse after its cut. The guidance section is fixed text at a fixed position, so it adds no per-request variation.
 
 ## Known Limitations and Deferred Work
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **Turn-level refresh** — with the default `refresh: 'turn'`, a file changed by a tool during the current turn appears in an update only on a later turn. The model that made the edit sees the change in its tool result; an externally changed file waits.
+- **Turn-level refresh by default** — with `refresh: 'turn'`, a file changed by a tool during the current turn appears in an update only on a later turn. `refresh: 'step'` closes that gap at the cost of a scan on every step, and that scan still runs before the next request.
 - **Fixed token estimate** — every budget decision uses `charsPerToken`, not the engine tokenizer. A dense file can exceed the intended budget and a sparse file can leave budget unused.
-- **Name-based secret exclusion only** — the default excluded filenames cover common environment, credential, and key files, but content is not inspected. A custom `includeFileNames` or `includeExtensions` list can include a secret, and a differently named secret file is included.
-- **Removal notices retain content** — removing a path from the ledger appends a notice; the earlier block remains in history until compaction shadows it.
+- **Name- and pattern-based secret exclusion only** — the default excluded names and patterns cover common environment, credential, key, lock, and generated files, but content is not inspected. A custom `includeFileNames`, `includeExtensions`, or re-including pattern can add a secret, and a differently named secret file is included.
+- **Path index is names only** — skipped paths are listed without size, language, or change status, and the list itself is bounded by `indexBudgetTokens`. Paths beyond the scan caps are not listed at all.
+- **Gitignore rules are best-effort** — an unreadable or oversized `.gitignore` is reported in scan notes and its rules are skipped for that subtree. Negation cannot re-include a path below an ignored directory because the traversal prunes that directory first.
+- **Guidance is unconditional** — when `guidance` is enabled and the agent is in scope, the section is present even if the workspace has no included files or later scans produce no updates.
+- **Removal and drop notices retain content** — removing a path from the ledger appends a notice; the earlier block remains in history until compaction shadows it.
 - **Incomplete scans keep old entries** — when `maxDepth`, `maxVisitedEntries`, or `maxFiles` stops a scan, deletions are not inferred, so a deleted file can remain in the ledger until a complete scan runs.
 - **Baseline competes with conversation** — a baseline near the context window triggers compaction sooner; the fresh baseline prepared afterward consumes budget again.
 - **Backend-dependent freshness** — the digest fast path still reads content when the backend reports no freshness token, so a scan can reread every tracked file on each eligible turn.
@@ -162,6 +181,6 @@ Append-only after the first snapshot. The baseline and preceding updates stay at
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The shipped base row stays disabled so each deployment chooses a budget. A plugin patch must restate the complete `config` object because patches replace the property they name. The projection is host-only; no client UI reads it.
+The shipped base row stays disabled so each deployment chooses a budget. A plugin patch must restate the complete `config` object because patches replace the property they name. The projection is host-only; no client UI reads it. Guidance is installed per agent through `agent.ctx.inject(['systemPrompt'], ...)` and disposed with the agent or the plugin.
 
 </details>

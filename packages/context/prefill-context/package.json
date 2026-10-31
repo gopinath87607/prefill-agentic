@@ -28,6 +28,7 @@
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:~",
+    "ignore": "7.0.14",
     "zod": "4.4.3"
   },
   "peerDependencies": {
@@ -37,6 +38,7 @@
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-working-directory": "workspace:*"
   },
   "devDependencies": {
@@ -50,6 +52,7 @@
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
+    "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-working-directory": "workspace:*"
   }
 }

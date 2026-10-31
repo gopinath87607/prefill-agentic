@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import AgentRegistry, { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents, type Agent, type PreStepDecision } from '@deepseek-ai/dsh-agent'
 import {
   mountAgentLoopTestDependencies,
   provideWorkingDirectoryFixture,
@@ -51,7 +51,7 @@ async function mount(cwd: string, config: Config = {}): Promise<Fiber> {
   return ctx.plugin(prefillContext, config)
 }
 
-function session(cwd: string, id = 'session'): Session {
+function session(cwd: string, id = 'session', meta: { origin?: 'subagent' } = {}): Session {
   const sessionId = SessionId(id)
   return Session.create(sessionId, [], {
     version: SESSION_FORMAT_VERSION,
@@ -59,6 +59,7 @@ function session(cwd: string, id = 'session'): Session {
     createdAt: 0,
     isSeeded: false,
     cwd,
+    ...meta,
   })
 }
 
@@ -89,6 +90,28 @@ function openTurn(subject: Session, turn: number): void {
   }), { surfaceOp: 'append' })
 }
 
+function proposal(text = 'request proposal'): ReturnType<typeof createUserMessage> {
+  return createUserMessage({
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' },
+  })
+}
+
+async function decide(
+  ctx: Context,
+  agent: Agent,
+  turn: number,
+  step = 1,
+  signal: AbortSignal = SIGNAL,
+  proposed: readonly ReturnType<typeof createUserMessage>[] = [proposal()],
+): Promise<PreStepDecision> {
+  return agentEvents(ctx, agent).waterfall(
+    'agent/pre-step',
+    { modelSelection: { provider: 'mock', model: 'mock' }, messages: [...proposed], turn, step, signal },
+    () => Promise.resolve({ kind: 'enter' as const, messages: [...proposed] }),
+  )
+}
+
 async function fire(
   ctx: Context,
   agent: Agent,
@@ -96,18 +119,11 @@ async function fire(
   step = 1,
   signal: AbortSignal = SIGNAL,
 ): Promise<void> {
-  const proposed = createUserMessage({
-    content: [{ type: 'text', text: 'request proposal' }],
-    source: { kind: 'user' },
-  })
-  const decision = await agentEvents(ctx, agent).waterfall(
-    'agent/pre-step',
-    { modelSelection: { provider: 'mock', model: 'mock' }, messages: [proposed], turn, step, signal },
-    () => Promise.resolve({ kind: 'enter' as const, messages: [proposed] }),
-  )
+  const proposed = [proposal()]
+  const decision = await decide(ctx, agent, turn, step, signal, proposed)
   if (decision.kind !== 'enter') return
   for (const message of decision.messages) {
-    if (message === proposed) continue
+    if (proposed.includes(message)) continue
     agent.session.append('user/message', message, { surfaceOp: 'append' })
   }
 }
@@ -161,6 +177,273 @@ describe('workspace snapshots', () => {
     expect(text).not.toContain('node_modules')
   })
 
+  it('applies .gitignore files, configured patterns, and case-insensitive exclusions', async () => {
+    const cwd = await workspace({
+      'keep.ts': 'keep\n',
+      'skip.ts': 'skip\n',
+      'a.skip': 'skip\n',
+      'NODE_MODULES/pkg/index.ts': 'dependency\n',
+      '.ENV': 'SECRET=1\n',
+      '.env.local': 'SECRET=1\n',
+      'Cargo.lock': 'lock\n',
+      'generated/service.generated.ts': 'generated\n',
+      'cache/entry.ts': 'cache\n',
+      'nested/keep.ts': 'nested keep\n',
+      'nested/skip.ts': 'nested skip\n',
+      '.gitignore': 'skip.ts\n*.skip\ncache/\n',
+      'nested/.gitignore': '*.ts\n!keep.ts\n',
+    })
+    await mount(cwd)
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    const text = prefillText(prefillMessages(subject)[0]!)
+    expect(text).toContain('--- FILE: keep.ts ---')
+    expect(text).toContain('--- FILE: nested/keep.ts ---')
+    expect(text).toContain('--- FILE: .gitignore ---')
+    expect(text).toContain('--- FILE: nested/.gitignore ---')
+    expect(text).not.toContain('--- FILE: skip.ts ---')
+    expect(text).not.toContain('--- FILE: a.skip ---')
+    expect(text).not.toContain('--- FILE: NODE_MODULES/pkg/index.ts ---')
+    expect(text).not.toContain('--- FILE: .ENV ---')
+    expect(text).not.toContain('--- FILE: .env.local ---')
+    expect(text).not.toContain('--- FILE: Cargo.lock ---')
+    expect(text).not.toContain('--- FILE: generated/service.generated.ts ---')
+    expect(text).not.toContain('--- FILE: cache/entry.ts ---')
+    expect(text).not.toContain('--- FILE: nested/skip.ts ---')
+    expect(text).not.toContain('SECRET=1')
+  })
+
+  it('includes gitignored paths when respectGitignore is disabled', async () => {
+    const cwd = await workspace({
+      'keep.ts': 'keep\n',
+      'skip.ts': 'skip\n',
+      '.gitignore': 'skip.ts\n',
+    })
+    await mount(cwd, { respectGitignore: false })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    const text = prefillText(prefillMessages(subject)[0]!)
+    expect(text).toContain('--- FILE: skip.ts ---')
+    expect(text).toContain('--- FILE: keep.ts ---')
+  })
+
+  it('replaces the default exclusion patterns with a custom list', async () => {
+    const cwd = await workspace({
+      'keep.txt': 'keep\n',
+      'drop.txt': 'drop\n',
+      'a.ts': 'export const a = 1\n',
+      '.env.local': 'SECRET=1\n',
+      'custom/entry.ts': 'custom\n',
+    })
+    await mount(cwd, { excludedFilePatterns: ['*.txt', '!keep.txt', 'custom/'] })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    const text = prefillText(prefillMessages(subject)[0]!)
+    expect(text).toContain('--- FILE: keep.txt ---')
+    expect(text).toContain('--- FILE: a.ts ---')
+    expect(text).not.toContain('--- FILE: drop.txt ---')
+    expect(text).not.toContain('--- FILE: custom/entry.ts ---')
+    expect(text).not.toContain('SECRET=1')
+  })
+
+  it('caps per-file tokens in the baseline and lists skipped paths', async () => {
+    const cwd = await workspace({
+      'big.ts': 'x'.repeat(50),
+      'small.ts': 'x',
+    })
+    await mount(cwd, { maxFileTokens: 5, charsPerToken: 1, budgetTokens: 10_000 })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    const text = prefillText(prefillMessages(subject)[0]!)
+    expect(text).toContain('Scan notes: 2 over the per-file token limit.')
+    expect(text).not.toContain('--- FILE:')
+    expect(text).toContain('Paths of files without contents follow the blocks')
+    expect(text).toContain('--- PATHS NOT INCLUDED ---')
+    expect(text).toContain('- big.ts')
+    expect(text).toContain('- small.ts')
+    expect(text).toContain('paths="2"')
+  })
+
+  it('omits the path index when disabled', async () => {
+    const cwd = await workspace({ 'a.ts': 'x'.repeat(50) })
+    await mount(cwd, { maxFileTokens: 0, includePathIndex: false })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    const text = prefillText(prefillMessages(subject)[0]!)
+    expect(text).not.toContain('--- PATHS NOT INCLUDED ---')
+    expect(text).not.toContain('paths=')
+  })
+
+  it('omits the path index when its budget is zero', async () => {
+    const cwd = await workspace({ 'a.ts': 'x'.repeat(50) })
+    await mount(cwd, { maxFileTokens: 0, indexBudgetTokens: 0 })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    const text = prefillText(prefillMessages(subject)[0]!)
+    expect(text).not.toContain('--- PATHS NOT INCLUDED ---')
+  })
+
+  it('drops tracked files past the per-file token cap and lists new oversized paths as pending', async () => {
+    const cwd = await workspace({
+      'a.ts': 'x\n',
+      'b.ts': 'y\n',
+    })
+    await mount(cwd, { maxFileTokens: 15, budgetTokens: 10_000, reserveTokens: 0 })
+    const subject = session(cwd)
+    const agent = sessionAgent(subject)
+    openTurn(subject, 1)
+    await fire(ctx!, agent, 1)
+    await writeFile(join(cwd, 'a.ts'), 'x'.repeat(20))
+    await writeFile(join(cwd, 'b.ts'), 'y'.repeat(100))
+    await writeFile(join(cwd, 'c.ts'), 'z'.repeat(100))
+    subject.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    openTurn(subject, 2)
+
+    await fire(ctx!, agent, 2)
+
+    const messages = prefillMessages(subject)
+    expect(messages).toHaveLength(2)
+    const update = messages[1]!
+    expect(update.data.source).toMatchObject({ kind: 'prefill-context', scannedTurn: 2 })
+    const text = prefillText(update)
+    expect(text).toContain('--- DROPPED: a.ts (over the per-file token limit) ---')
+    expect(text).toContain('--- DROPPED: b.ts (over the per-file token limit) ---')
+    expect(text).toContain('Scan notes: 3 over the per-file token limit.')
+    expect(text).toContain('--- PATHS PENDING ---')
+    expect(text).toContain('- c.ts')
+    expect(update.data.source.kind === 'prefill-context'
+      ? update.data.source.changes
+      : []).toEqual([
+      { action: 'remove', path: 'a.ts' },
+      { action: 'remove', path: 'b.ts' },
+    ])
+  })
+
+  it('defers changed content that does not fit the delta budget and lists it as pending', async () => {
+    const cwd = await workspace({
+      'a.ts': 'short\n',
+      'b.ts': 'remove me\n',
+    })
+    await mount(cwd, { budgetTokens: 10_000, reserveTokens: 0, deltaBudgetTokens: 1 })
+    const subject = session(cwd)
+    const agent = sessionAgent(subject)
+    openTurn(subject, 1)
+    await fire(ctx!, agent, 1)
+    await writeFile(join(cwd, 'a.ts'), 'a much longer replacement\n')
+    await rm(join(cwd, 'b.ts'))
+    subject.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    openTurn(subject, 2)
+
+    await fire(ctx!, agent, 2)
+
+    const text = prefillText(prefillMessages(subject)[1]!)
+    expect(text).toContain('1 changed files did not fit this update; they remain pending for a later turn.')
+    expect(text).toContain('--- PATHS PENDING ---')
+    expect(text).toContain('- a.ts')
+    expect(text).toContain('--- REMOVED: b.ts ---')
+  })
+
+  it('places the snapshot before the claimed user messages', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    await mount(cwd, { position: 'before' })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    const decision = await decide(ctx!, sessionAgent(subject), 1)
+
+    expect(decision.kind).toBe('enter')
+    if (decision.kind !== 'enter') return
+    expect(decision.messages).toHaveLength(2)
+    expect(decision.messages[0]!.source.kind).toBe('prefill-context')
+    expect(decision.messages[1]!.source.kind).toBe('user')
+  })
+
+  it('places the snapshot after the claimed user messages by default', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    await mount(cwd)
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    const decision = await decide(ctx!, sessionAgent(subject), 1)
+
+    expect(decision.kind).toBe('enter')
+    if (decision.kind !== 'enter') return
+    expect(decision.messages).toHaveLength(2)
+    expect(decision.messages[0]!.source.kind).toBe('user')
+    expect(decision.messages[1]!.source.kind).toBe('prefill-context')
+  })
+
+  it('rescans within the same turn with refresh step', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    await mount(cwd, { refresh: 'step' })
+    const subject = session(cwd)
+    const agent = sessionAgent(subject)
+    openTurn(subject, 1)
+    await fire(ctx!, agent, 1)
+    await writeFile(join(cwd, 'a.ts'), 'export const a = 2\n')
+
+    await fire(ctx!, agent, 1, 2)
+
+    const messages = prefillMessages(subject)
+    expect(messages).toHaveLength(2)
+    expect(prefillText(messages[1]!)).toContain('export const a = 2')
+    expect(prefillText(messages[1]!)).toContain('kind="delta"')
+  })
+
+  it('does not rescan a second step in the same turn with refresh turn', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    await mount(cwd)
+    const subject = session(cwd)
+    const agent = sessionAgent(subject)
+    openTurn(subject, 1)
+    await fire(ctx!, agent, 1)
+    await writeFile(join(cwd, 'a.ts'), 'export const a = 2\n')
+
+    await fire(ctx!, agent, 1, 2)
+
+    expect(prefillMessages(subject)).toHaveLength(1)
+  })
+
+  it('skips subagent sessions under the main agent scope', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    await mount(cwd, { agents: 'main' })
+    const subject = session(cwd, 'subagent', { origin: 'subagent' })
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    expect(prefillMessages(subject)).toHaveLength(0)
+  })
+
+  it('injects into subagent sessions under the all agent scope', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    await mount(cwd, { agents: 'all' })
+    const subject = session(cwd, 'subagent', { origin: 'subagent' })
+    openTurn(subject, 1)
+
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    expect(prefillMessages(subject)).toHaveLength(1)
+  })
+
   it('appends changes as a delta without rewriting the committed baseline', async () => {
     const cwd = await workspace({
       'a.ts': 'export const a = 1\n',
@@ -190,6 +473,7 @@ describe('workspace snapshots', () => {
     const text = prefillText(update)
     expect(text).toContain('<prefill-context kind="delta"')
     expect(text).toContain('Added 1, modified 1, removed 1.')
+    expect(text).toContain('A block in this update replaces any earlier block for the same path.')
     expect(text).toContain('--- FILE: a.ts (modified) ---')
     expect(text).toContain('--- FILE: c.ts (added) ---')
     expect(text).toContain('--- REMOVED: nested/b.ts ---')
@@ -301,11 +585,16 @@ describe('workspace snapshots', () => {
     const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
     await expect(mount(cwd, { budgetTokens: -1 })).rejects.toThrow(/invalid config:[\s\S]*budgetTokens/u)
     await expect(mount(cwd, { refresh: 'sometimes' as never })).rejects.toThrow(/invalid config:[\s\S]*refresh/u)
+    await expect(mount(cwd, { position: 'middle' as never })).rejects.toThrow(/invalid config:[\s\S]*position/u)
+    await expect(mount(cwd, { agents: 'none' as never })).rejects.toThrow(/invalid config:[\s\S]*agents/u)
+    await expect(mount(cwd, { maxFileTokens: -1 })).rejects.toThrow(/invalid config:[\s\S]*maxFileTokens/u)
+    await expect(mount(cwd, { indexBudgetTokens: -1 })).rejects.toThrow(/invalid config:[\s\S]*indexBudgetTokens/u)
+    await expect(mount(cwd, { excludedFilePatterns: [''] })).rejects.toThrow(/excludedFilePatterns entries must not be empty/u)
   })
 })
 
 describe('real agent-loop request history', () => {
-  it('puts the baseline and later deltas in front of the model', async () => {
+  it('puts the baseline, guidance, and later deltas in front of the model', async () => {
     const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
     ctx = new Context()
     await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
@@ -328,9 +617,11 @@ describe('real agent-loop request history', () => {
     expect(adapter.requests).toHaveLength(2)
     const first = requestText(adapter.requests[0]!)
     const second = requestText(adapter.requests[1]!)
+    expect(first).toContain('Workspace prefill:')
     expect(first).toContain('<prefill-context kind="baseline"')
     expect(first).toContain('export const a = 1')
     expect(first).not.toContain('<prefill-context kind="delta"')
+    expect(second).toContain('Workspace prefill:')
     expect(second).toContain('<prefill-context kind="baseline"')
     expect(second).toContain('<prefill-context kind="delta"')
     expect(second).toContain('export const a = 2')
@@ -338,6 +629,30 @@ describe('real agent-loop request history', () => {
     const messages = prefillMessages(agent.session)
     expect(messages).toHaveLength(2)
     expect(messages.every(message => message.surfaceOp === 'append')).toBe(true)
+    await ctx.fiber.dispose()
+    ctx = undefined
+  })
+
+  it('omits the guidance section when guidance is disabled', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    const adapter = new MockAdapter([textResponse('answer')])
+    ctx.llm.registerAdapter(['mock'], adapter)
+    await ctx.plugin(prefillContext, { budgetTokens: 4096, guidance: false })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    const agent = await ctx.agentLoop.create(
+      SessionId('prefill-loop-no-guidance'),
+      { provider: 'mock', model: 'mock' },
+      { cwd },
+    )
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'start' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    const first = requestText(adapter.requests[0]!)
+    expect(first).not.toContain('Workspace prefill:')
+    expect(first).toContain('<prefill-context kind="baseline"')
     await ctx.fiber.dispose()
     ctx = undefined
   })

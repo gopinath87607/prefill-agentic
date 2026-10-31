@@ -14,6 +14,8 @@ import {
   renderBaselineText,
   renderDeltaText,
   renderFileBlock,
+  selectPathIndex,
+  type PathIndex,
 } from './render.ts'
 
 /** Message text and ledger transitions prepared from one scan. */
@@ -47,6 +49,8 @@ type ReadOutcome =
 
 const UNREADABLE_DETAIL_SEPARATOR = ': '
 
+const EMPTY_PATH_INDEX: PathIndex = { paths: [], omitted: 0 }
+
 /**
  * Select shallow files first until the baseline budget is full.
  * @param fileSystem - mounted filesystem service.
@@ -66,22 +70,30 @@ export async function prepareBaseline(
   const budget = Math.max(0, config.budgetTokens - config.reserveTokens)
   const blocks: string[] = []
   const changes: PrefillChange[] = []
+  const includedPaths = new Set<string>()
   let used = 0
   let oversize = 0
+  let overFileTokens = 0
   let unreadable = 0
   let overBudget = 0
   const unreadableDetails: string[] = []
 
   for (const candidate of [...scan.candidates].sort(compareCandidates)) {
     signal?.throwIfAborted()
-    if (candidate.size !== undefined && candidate.size > config.maxFileBytes) {
-      oversize += 1
-      continue
-    }
-    if (candidate.size !== undefined
-      && Math.ceil(candidate.size / config.charsPerToken) + used > budget) {
-      overBudget += 1
-      continue
+    if (candidate.size !== undefined) {
+      if (candidate.size > config.maxFileBytes) {
+        oversize += 1
+        continue
+      }
+      const sizeTokens = Math.ceil(candidate.size / config.charsPerToken)
+      if (sizeTokens > config.maxFileTokens) {
+        overFileTokens += 1
+        continue
+      }
+      if (sizeTokens + used > budget) {
+        overBudget += 1
+        continue
+      }
     }
     const outcome = await readCandidate(fileSystem, candidate, config.maxFileBytes, signal)
     if (outcome.kind === 'oversize') {
@@ -95,11 +107,16 @@ export async function prepareBaseline(
     }
     const block = renderFileBlock(candidate.path, undefined, outcome.file.text)
     const tokens = estimateTokens(block, config.charsPerToken)
+    if (tokens > config.maxFileTokens) {
+      overFileTokens += 1
+      continue
+    }
     if (used + tokens > budget) {
       overBudget += 1
       continue
     }
     blocks.push(block)
+    includedPaths.add(candidate.path)
     changes.push({
       action: 'set',
       entry: {
@@ -112,14 +129,27 @@ export async function prepareBaseline(
     used += tokens
   }
 
+  const pathIndex = config.includePathIndex
+    ? selectPathIndex(
+      scan.candidates
+        .map(candidate => candidate.path)
+        .filter(path => !includedPaths.has(path))
+        .sort(compareStrings),
+      config.indexBudgetTokens,
+      config.charsPerToken,
+    )
+    : EMPTY_PATH_INDEX
+
   return {
     text: renderBaselineText({
       turn: context.turn,
       rootDisplay: context.rootDisplay,
       included: blocks.length,
       contentTokens: used,
+      pathIndex,
       blocks,
       oversize,
+      overFileTokens,
       unreadable,
       overBudget,
       incomplete: !scan.complete,
@@ -135,7 +165,9 @@ export async function prepareBaseline(
  *
  * Content that does not fit the per-turn budget stays pending: its ledger entry
  * is not advanced, so a later turn offers it again. A complete scan reports
- * deleted paths; an incomplete scan never infers deletion.
+ * deleted paths; an incomplete scan never infers deletion. Files above
+ * `maxFileTokens` or `maxFileBytes` are dropped from the ledger and named in
+ * the update.
  * @param fileSystem - mounted filesystem service.
  * @param scan - completed workspace scan.
  * @param config - normalized budgets and limits.
@@ -158,11 +190,13 @@ export async function prepareDelta(
   const blocks: string[] = []
   const changes: PrefillChange[] = []
   const removedPaths: string[] = []
-  const droppedPaths: string[] = []
+  const dropped: Array<{ path: string; reason: string }> = []
+  const pendingPaths = new Set<string>()
   let added = 0
   let modified = 0
   let deferred = 0
   let oversize = 0
+  let overFileTokens = 0
   let unreadable = 0
   let used = 0
   const unreadableDetails: string[] = []
@@ -185,13 +219,22 @@ export async function prepareDelta(
       && (candidate.size === undefined || candidate.size === previous.bytes)) {
       continue
     }
+    if (candidate.size !== undefined) {
+      if (candidate.size > config.maxFileBytes) {
+        oversize += 1
+        dropTracked(candidate.path, previous, 'over the size limit', dropped, pendingPaths, changes)
+        continue
+      }
+      if (Math.ceil(candidate.size / config.charsPerToken) > config.maxFileTokens) {
+        overFileTokens += 1
+        dropTracked(candidate.path, previous, 'over the per-file token limit', dropped, pendingPaths, changes)
+        continue
+      }
+    }
     const outcome = await readCandidate(fileSystem, candidate, config.maxFileBytes, signal)
     if (outcome.kind === 'oversize') {
       oversize += 1
-      if (previous !== undefined) {
-        droppedPaths.push(candidate.path)
-        changes.push({ action: 'remove', path: candidate.path })
-      }
+      dropTracked(candidate.path, previous, 'over the size limit', dropped, pendingPaths, changes)
       continue
     }
     if (outcome.kind === 'unreadable') {
@@ -207,8 +250,14 @@ export async function prepareDelta(
     const label = previous === undefined ? 'added' : 'modified'
     const block = renderFileBlock(candidate.path, label, outcome.file.text)
     const tokens = estimateTokens(block, config.charsPerToken)
+    if (tokens > config.maxFileTokens) {
+      overFileTokens += 1
+      dropTracked(candidate.path, previous, 'over the per-file token limit', dropped, pendingPaths, changes)
+      continue
+    }
     if (used + tokens > budget) {
       deferred += 1
+      pendingPaths.add(candidate.path)
       continue
     }
     blocks.push(block)
@@ -227,6 +276,9 @@ export async function prepareDelta(
   }
 
   if (changes.length === 0) return undefined
+  const pathIndex = config.includePathIndex
+    ? selectPathIndex([...pendingPaths].sort(compareStrings), config.indexBudgetTokens, config.charsPerToken)
+    : EMPTY_PATH_INDEX
   return {
     text: renderDeltaText({
       turn: context.turn,
@@ -234,10 +286,12 @@ export async function prepareDelta(
       added,
       modified,
       deferred,
+      pathIndex,
       blocks,
       removedPaths,
-      droppedPaths,
+      dropped,
       oversize,
+      overFileTokens,
       unreadable,
       overBudget: 0,
       incomplete: !scan.complete,
@@ -246,6 +300,33 @@ export async function prepareDelta(
     changes,
     included: blocks.length,
   }
+}
+
+/**
+ * Remove a tracked path whose current contents cannot enter the snapshot, or
+ * report a new path as pending without a ledger transition.
+ * @param path - workspace-relative path.
+ * @param previous - ledger entry when the path is already tracked.
+ * @param reason - short reason rendered beside a dropped path.
+ * @param dropped - collected dropped paths.
+ * @param pending - collected paths without content.
+ * @param changes - ledger transitions for this update.
+ * @returns nothing.
+ */
+function dropTracked(
+  path: string,
+  previous: PrefillFileEntry | undefined,
+  reason: string,
+  dropped: Array<{ path: string; reason: string }>,
+  pending: Set<string>,
+  changes: PrefillChange[],
+): void {
+  if (previous === undefined) {
+    pending.add(path)
+    return
+  }
+  dropped.push({ path, reason })
+  changes.push({ action: 'remove', path })
 }
 
 async function readCandidate(

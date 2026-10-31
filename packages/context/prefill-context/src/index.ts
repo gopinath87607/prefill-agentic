@@ -6,12 +6,15 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import { Config, resolveConfig } from './config.ts'
+import type { ResolvedPrefillConfig } from './config.ts'
 import { prepareBaseline, prepareDelta } from './prepare.ts'
+import { PREFILL_GUIDANCE } from './render.ts'
 import { scanWorkspace } from './scan.ts'
 import {
   PREFILL_PROJECTION_KEY,
@@ -23,18 +26,21 @@ import {
 import type { PrefillContextSource } from './state.ts'
 
 export { Config, name }
+export { PREFILL_GUIDANCE }
 export type { PrefillContextState, PrefillContextSource, PrefillFileEntry } from './state.ts'
 
 /** Services required to observe turns, resolve the workspace, and persist the ledger. */
 export const inject = ['agents', 'workingDirectory', 'sessionProjections']
 
 /**
- * Register the ledger projection and the pre-step snapshot listener.
+ * Register the ledger projection, the pre-step snapshot listener, and the
+ * per-agent system-prompt guidance.
  *
  * The first eligible step injects a complete snapshot. Later turns append an
- * update when files changed. A compaction that shadows the baseline clears the
- * ledger, and the next step prepares a fresh snapshot.
- * @param ctx - plugin context; both registrations are disposed with it.
+ * update when files changed, or every step with `refresh: 'step'`. A compaction
+ * that shadows the baseline clears the ledger, and the next step prepares a
+ * fresh snapshot.
+ * @param ctx - plugin context; every registration and prompt section is disposed with it.
  * @param config - row configuration.
  * @throws TypeError when the configuration is invalid.
  * @returns when the plugin is ready.
@@ -48,6 +54,40 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     init: initPrefillState,
     apply: applyPrefillEvent,
   })
+
+  const promptFibers = new Map<Agent, ReturnType<Context['inject']>>()
+  const installGuidance = (agent: Agent): void => {
+    if (!resolved.guidance || !isEligible(agent, resolved) || promptFibers.has(agent)) return
+    const fiber = agent.ctx.inject(['systemPrompt'], (scope) => {
+      scope.systemPrompt.section({
+        name: 'context:prefill',
+        order: scope.systemPrompt.getSectionOrder('FILE_REFERENCE'),
+        text: PREFILL_GUIDANCE,
+      })
+    })
+    promptFibers.set(agent, fiber)
+  }
+  const disposeGuidance = (agent: Agent): void => {
+    const fiber = promptFibers.get(agent)
+    if (fiber === undefined) return
+    promptFibers.delete(agent)
+    void fiber.dispose().catch((error: unknown) => {
+      ctx.logger.warn(`prefill-context: guidance cleanup failed: ${error instanceof Error ? error.message : String(error)}`)
+    })
+  }
+  for (const agent of ctx.agents.list()) installGuidance(agent)
+  ctx.on('agent/created', ({ agent }) => {
+    installGuidance(agent)
+  })
+  ctx.on('agent/disposed', ({ agent }) => {
+    disposeGuidance(agent)
+  })
+  ctx.effect(() => async () => {
+    const fibers = [...promptFibers.values()]
+    promptFibers.clear()
+    await Promise.all(fibers.map(fiber => fiber.dispose()))
+  }, 'prefill-context: guidance')
+
   ctx.on('agent/pre-step', async (
     { agent, messages, turn, signal },
     next,
@@ -55,9 +95,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     ctx.fiber.assertActive()
     const decision = await next()
     if (decision.kind === 'reject' || signal.aborted) return decision
+    if (!isEligible(agent, resolved)) return decision
     const state = projection.stateOf(agent.session)
-    if (state.baselineAt !== null
-      && (resolved.refresh === 'never' || state.lastScanTurn === turn)) return decision
+    const refreshDue = state.baselineAt === null
+      || resolved.refresh === 'step'
+      || (resolved.refresh === 'turn' && state.lastScanTurn !== turn)
+    if (!refreshDue) return decision
     const fileSystem = ctx.get('fs')
     if (fileSystem === undefined) return decision
     const directory = await ctx.workingDirectory.ensure(agent, signal)
@@ -89,8 +132,21 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       content: [{ type: 'text', text: prepared.text }],
       source,
     })
-    const lastClaimedIndex = decision.messages.findLastIndex(message => messages.includes(message))
-    const insertAt = lastClaimedIndex < 0 ? decision.messages.length : lastClaimedIndex + 1
+    const claimed = decision.messages.flatMap((message, index) => messages.includes(message) ? [index] : [])
+    const lastClaimed = claimed.at(-1)
+    const insertAt = resolved.position === 'before'
+      ? claimed[0] ?? 0
+      : lastClaimed === undefined ? decision.messages.length : lastClaimed + 1
     return { ...decision, messages: decision.messages.toSpliced(insertAt, 0, injected) }
   }, { prepend: true })
+}
+
+/**
+ * Whether a session may receive snapshots and guidance under the configured scope.
+ * @param agent - agent entering the step.
+ * @param config - normalized configuration.
+ * @returns false only for subagent sessions under the `main` scope.
+ */
+function isEligible(agent: Agent, config: ResolvedPrefillConfig): boolean {
+  return config.agents === 'all' || agent.session.header.origin !== 'subagent'
 }

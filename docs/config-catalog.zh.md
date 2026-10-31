@@ -2717,7 +2717,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-prefill-context`
 
 - `inject`: `agents` · `workingDirectory` · `sessionProjections`
-- `source`: [`packages/context/prefill-context/src/config.ts:202`](../packages/context/prefill-context/src/config.ts)
+- `source`: [`packages/context/prefill-context/src/config.ts:230`](../packages/context/prefill-context/src/config.ts)
 
 ```ts config-catalog
 /** Row configuration for workspace prefill snapshots. */
@@ -2732,26 +2732,52 @@ export interface Config {
   reserveTokens?: number
   /** Largest file read into a snapshot; larger files are reported and skipped. */
   maxFileBytes?: number
+  /** Largest single file included by estimated tokens; larger files are skipped. */
+  maxFileTokens?: number
   /** Largest number of eligible files collected in one scan. */
   maxFiles?: number
   /** Largest number of directory entries visited in one scan. */
   maxVisitedEntries?: number
   /** Largest directory depth below the workspace root. */
   maxDepth?: number
-  /** Whether a new turn rescans for changes; `never` injects only the first snapshot. */
+  /** Whether a new turn rescans; `step` rescans every step, `never` injects only the first snapshot. */
   refresh?: PrefillRefresh
+  /** Insert the snapshot before or after the step's claimed user messages. */
+  position?: PrefillPosition
+  /** Sessions that receive snapshots: only top-level agents, or every agent including subagents. */
+  agents?: PrefillAgentScope
+  /** List paths whose contents were not included, subject to `indexBudgetTokens`. */
+  includePathIndex?: boolean
+  /** Token budget for the path index, which is appended in addition to the content budget. */
+  indexBudgetTokens?: number
+  /** Apply the workspace's `.gitignore` files while scanning. */
+  respectGitignore?: boolean
+  /** Register stable guidance about reading prefill messages in the system prompt. */
+  guidance?: boolean
   /** Lowercase extensions treated as text; a leading dot is added when omitted. */
   includeExtensions?: string[]
   /** Exact filenames included regardless of extension. */
   includeFileNames?: string[]
-  /** Exact directory names never traversed. */
+  /** Directory names never traversed, matched case-insensitively. */
   excludedDirectories?: string[]
-  /** Exact filenames never included, checked before the include rules. */
+  /** Filenames never included, matched case-insensitively, checked before the include rules. */
   excludedFileNames?: string[]
+  /**
+   * Gitignore-style patterns never included, matched case-insensitively against
+   * workspace-relative paths. A leading `!` re-includes a path; later patterns
+   * win. File contents are not inspected.
+   */
+  excludedFilePatterns?: string[]
 }
 
 /** How often the workspace is rescanned for content changes. */
-export type PrefillRefresh = 'turn' | 'never'
+export type PrefillRefresh = 'turn' | 'step' | 'never'
+
+/** Where the injected message is placed relative to the step's user messages. */
+export type PrefillPosition = 'before' | 'after'
+
+/** Which sessions receive snapshots. */
+export type PrefillAgentScope = 'main' | 'all'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-prefill-context -->
 
