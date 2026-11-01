@@ -3,38 +3,50 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write README.md
 /prefill-agentic:
-  en: 64b267ef96919b9b
-  zh: ad4a14bb5326b76f
-/prefill-agentic/what-this-fork-adds:
-  en: 7b1731699c90645a
-  zh: dd0c1adce81b47b2
-/prefill-agentic/how-prefill-works:
-  en: d520d11c29025955
-  zh: 7583b89f52e0993a
-/prefill-agentic/run:
-  en: 75a68cf0cf8e5fff
-  zh: 6c19112ffda45755
-/prefill-agentic/run/linux:
+  en: dea9c54d7ef98a26
+  zh: e84c850bc256b149
+/prefill-agentic/why-prefill:
+  en: 5d80c9357444cf57
+  zh: 389fe9b4f02b768e
+/prefill-agentic/highlights:
+  en: 2ae191f1080bc683
+  zh: 3ea34c42815e6ade
+/prefill-agentic/quick-start:
+  en: a5a1a078040ed8d2
+  zh: 499e36b6b3355a02
+/prefill-agentic/quick-start/linux:
   en: c291e07b5c121196
   zh: 01a508974719a23d
-/prefill-agentic/run/windows-vm:
+/prefill-agentic/quick-start/windows-vm:
   en: 31814aa370c974ae
-  zh: 291d0c80b18e7ebc
-/prefill-agentic/configure-the-snapshot:
-  en: c2fea0cafd030370
-  zh: de5af79d94804b67
-/prefill-agentic/keep-automatic-continuation-bounded:
-  en: 4fa52e62804c3b3f
-  zh: 46874b9a469f3655
-/prefill-agentic/configure-engines:
-  en: 6cfac1f222436221
-  zh: 4beac9d9cfd6ae10
-/prefill-agentic/workspace-limits:
-  en: 52c75c569c809c37
-  zh: b275096d8ab3e788
-/prefill-agentic/upstream:
-  en: 43b1dd20be41de73
-  zh: 2c47f3e3e3062745
+  zh: b825af3ed00ec2a5
+/prefill-agentic/how-it-works:
+  en: 755997d50e079d0f
+  zh: 67814fd0be5507f5
+/prefill-agentic/the-model-chooses-the-files:
+  en: 536926144ae3c679
+  zh: 97fb0cf0523682eb
+/prefill-agentic/the-dashboard:
+  en: 4d343d30e29d3c69
+  zh: bc0f936b80fbff55
+/prefill-agentic/configuration:
+  en: 87fd1b0975da13b2
+  zh: a5c13888b63d8c42
+/prefill-agentic/engines:
+  en: 8de072fcdf9aeccc
+  zh: 3d4be8b0ad1641af
+/prefill-agentic/automatic-continuation:
+  en: 6b20e85e581e80b1
+  zh: ae51588a0f100492
+/prefill-agentic/windows-and-shared-folders:
+  en: ee7f92b19451c0ef
+  zh: 96499fcbc40c92d3
+/prefill-agentic/documentation:
+  en: bd74d063ae98e380
+  zh: fbd63ed10280b57d
+/prefill-agentic/contributing:
+  en: d68bb57dc703bbb0
+  zh: a7261c940e119840
 /prefill-agentic/license:
   en: 82fa813f0a93522d
   zh: 515a7c32bfa7dddf
