@@ -458,6 +458,10 @@
     - id: ui-plan
       name: '@deepseek-ai/dsh-client-ui-plan'
 
+    # Prefill dashboard: prefilled files, cache reuse, saved time, and token usage.
+    - id: ui-prefill
+      name: '@deepseek-ai/dsh-client-ui-prefill'
+
     - id: ui-user-questions
       name: '@deepseek-ai/dsh-client-ui-user-questions'
 

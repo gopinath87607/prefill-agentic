@@ -579,7 +579,7 @@ describe('workspace snapshots', () => {
     expect(messages[0]!.data.source).toMatchObject({ kind: 'prefill-context', baseline: true, scannedTurn: 3 })
   })
 
-  it('serves cumulative prefill savings through the projection view', async () => {
+  it('serves cumulative prefill savings and the visible snapshot through the projections', async () => {
     const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
     await mount(cwd, { charsPerToken: 1, promptTokensPerSecond: 500 })
     const subject = session(cwd)
@@ -588,8 +588,26 @@ describe('workspace snapshots', () => {
 
     const injected = prefillText(prefillMessages(subject)[0]!).length
     expect(injected).toBeGreaterThan(0)
-    const savings = (): unknown => ctx!.sessionProjections.snapshot(subject).values.prefillContext
-    expect(savings()).toEqual({
+    const values = (): Record<string, unknown> => ctx!.sessionProjections.snapshot(subject).values
+    expect(values().prefillContext).toEqual({
+      visibleTokens: injected,
+      injectedTokens: injected,
+      reusedTokens: 0,
+      savedTokens: 0,
+      savedMs: 0,
+      tokensPerSecond: 500,
+    })
+    expect(values().prefillLedger).toEqual({
+      root: cwd,
+      lastScanTurn: 1,
+      files: [{ path: 'a.ts', bytes: 'export const a = 1\n'.length }],
+    })
+
+    // The baseline request carried no cached prefill prefix, so its own
+    // settlement credits nothing; each later request can reuse the prefill.
+    settle(subject, { inputTokens: injected + 10, outputTokens: 1, cacheReadTokens: injected })
+    expect(values().prefillContext).toEqual({
+      visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: 0,
       savedTokens: 0,
@@ -597,8 +615,9 @@ describe('workspace snapshots', () => {
       tokensPerSecond: 500,
     })
 
-    settle(subject, { inputTokens: injected + 10, outputTokens: 1, cacheReadTokens: injected })
-    expect(savings()).toEqual({
+    settle(subject, { inputTokens: 3, outputTokens: 1, cacheReadTokens: injected })
+    expect(values().prefillContext).toEqual({
+      visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: injected,
       savedTokens: 0,
@@ -607,7 +626,8 @@ describe('workspace snapshots', () => {
     })
 
     settle(subject, { inputTokens: 3, outputTokens: 1, cacheReadTokens: injected })
-    expect(savings()).toEqual({
+    expect(values().prefillContext).toEqual({
+      visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: injected * 2,
       savedTokens: injected,
@@ -616,7 +636,8 @@ describe('workspace snapshots', () => {
     })
     // An unrelated event keeps the accounting, and therefore the view, unchanged.
     subject.append('turn/start', { turn: 2 })
-    expect(savings()).toEqual({
+    expect(values().prefillContext).toEqual({
+      visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: injected * 2,
       savedTokens: injected,

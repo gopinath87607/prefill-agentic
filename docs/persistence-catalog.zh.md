@@ -4445,7 +4445,7 @@ SHA-256: `3bd652ebfa8726b3ce3937a4f1bd2759e02f86b3a08a20f9e41a8513656fbc5f`
 
 SHA-256: `bc0934adc07249bb660190b3e4a5f9d7995ef3aaa2c827cfe3c1e4a13a2c4f7b`
 
-来源：[`packages/context/prefill-context/src/state.ts:31`](../packages/context/prefill-context/src/state.ts)
+来源：[`packages/context/prefill-context/src/state.ts:35`](../packages/context/prefill-context/src/state.ts)
 
 以下类型之一：
 
@@ -4470,7 +4470,7 @@ SHA-256: `1f787c32c9cf86772b4f33a83abf650eb788e3bce959073a6023419ae6bf6563`
 
 SHA-256: `d9def819f00dd041b0d12f68640a3ec2974c349b6d3b27cca44ed18c8fd26cac`
 
-来源：[`packages/context/prefill-context/src/state.ts:36`](../packages/context/prefill-context/src/state.ts)
+来源：[`packages/context/prefill-context/src/state.ts:40`](../packages/context/prefill-context/src/state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -4490,7 +4490,7 @@ SHA-256: `d9def819f00dd041b0d12f68640a3ec2974c349b6d3b27cca44ed18c8fd26cac`
 
 SHA-256: `69a8922009fcd6dd75436781d8a0e70f04ac0213654313c36b7ad25379d27f80`
 
-来源：[`packages/context/prefill-context/src/state.ts:19`](../packages/context/prefill-context/src/state.ts)
+来源：[`packages/context/prefill-context/src/state.ts:23`](../packages/context/prefill-context/src/state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5894,7 +5894,7 @@ SHA-256: `b1664fa89f8eab49a14e7e3168d8bc4da4aa9fd76332f6c4a053d839e5276ae7`
 
 SHA-256: `0d751a59b1b51c748498f4f59c1ab2b5062b61d046a789553b57ff44175078d6`
 
-来源：[`packages/context/prefill-context/src/state.ts:32`](../packages/context/prefill-context/src/state.ts)
+来源：[`packages/context/prefill-context/src/state.ts:36`](../packages/context/prefill-context/src/state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|
@@ -5907,7 +5907,7 @@ SHA-256: `0d751a59b1b51c748498f4f59c1ab2b5062b61d046a789553b57ff44175078d6`
 
 SHA-256: `ecf05c266dd8f30053c4e4db6878cb6aa4d489d4598633d198464c31c1fce387`
 
-来源：[`packages/context/prefill-context/src/state.ts:33`](../packages/context/prefill-context/src/state.ts)
+来源：[`packages/context/prefill-context/src/state.ts:37`](../packages/context/prefill-context/src/state.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

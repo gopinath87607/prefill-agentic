@@ -17,34 +17,44 @@ import { prepareBaseline, prepareDelta } from './prepare.ts'
 import { PREFILL_GUIDANCE } from './render.ts'
 import { scanWorkspace } from './scan.ts'
 import {
+  PREFILL_LEDGER_PROJECTION_KEY,
   PREFILL_PROJECTION_KEY,
-  applyPrefillEvent,
-  initPrefillState,
+  applyPrefillAccountingEvent,
+  applyPrefillLedgerEvent,
+  initPrefillAccountingState,
+  initPrefillLedgerState,
   name,
+  prefillLedgerView,
+  prefillLedgerViewSchema,
   prefillSavingsSchema,
   prefillSavingsView,
-  prefillStateSchema,
+  prefillAccountingStateSchema,
+  prefillLedgerStateSchema,
   sameAccounting,
 } from './state.ts'
-import type { PrefillAccounting, PrefillContextSource } from './state.ts'
-import type { PrefillSavingsView } from './types.ts'
+import type {
+  PrefillAccounting, PrefillContextSource, PrefillLedgerState,
+} from './state.ts'
+import type { PrefillLedgerView, PrefillSavingsView } from './types.ts'
 
 export { Config, name }
 export { PREFILL_GUIDANCE }
-export type { PrefillAccounting, PrefillContextState, PrefillContextSource, PrefillFileEntry } from './state.ts'
-export type { PrefillSavingsView } from './types.ts'
+export type {
+  PrefillAccounting, PrefillAccountingState, PrefillContextSource, PrefillFileEntry, PrefillLedgerState,
+} from './state.ts'
+export type { PrefillFileView, PrefillLedgerView, PrefillSavingsView } from './types.ts'
 
 /** Services required to observe turns, resolve the workspace, and persist the ledger. */
 export const inject = ['agents', 'workingDirectory', 'sessionProjections']
 
 /**
- * Register the ledger projection, the pre-step snapshot listener, and the
- * per-agent system-prompt guidance.
+ * Register the ledger and savings projections, the pre-step snapshot listener,
+ * and the per-agent system-prompt guidance.
  *
  * The first eligible step injects a complete snapshot. Later turns append an
  * update when files changed, or every step with `refresh: 'step'`. A compaction
- * that shadows the baseline clears the ledger, and the next step prepares a
- * fresh snapshot.
+ * that shadows the baseline clears the visible ledger, and the next step
+ * prepares a fresh snapshot.
  * @param ctx - plugin context; every registration and prompt section is disposed with it.
  * @param config - row configuration.
  * @throws TypeError when the configuration is invalid.
@@ -52,17 +62,16 @@ export const inject = ['agents', 'workingDirectory', 'sessionProjections']
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const resolved = resolveConfig(config)
-  // The drive compares successive view references, so reuse the object while
-  // the counts behind it are unchanged. The closure is shared by every
-  // session's view call, so compare values rather than accounting identity.
+  // Both view closures are shared by every session's view call, so compare
+  // values or references rather than assuming consecutive calls share a state.
   let viewAccounting: PrefillAccounting | undefined
   let viewValue: PrefillSavingsView | undefined
-  const projection = await ctx.sessionProjections.register({
+  await ctx.sessionProjections.register({
     key: PREFILL_PROJECTION_KEY,
-    stateVersion: 2,
-    stateSchema: prefillStateSchema,
-    init: initPrefillState,
-    apply: (state, event) => applyPrefillEvent(state, event, resolved.charsPerToken),
+    stateVersion: 3,
+    stateSchema: prefillAccountingStateSchema,
+    init: initPrefillAccountingState,
+    apply: (state, event) => applyPrefillAccountingEvent(state, event, resolved.charsPerToken),
     wire: {
       viewSchema: prefillSavingsSchema,
       view: (state) => {
@@ -71,6 +80,32 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
           viewValue = prefillSavingsView(state.accounting, resolved.promptTokensPerSecond)
         }
         return viewValue
+      },
+    },
+  })
+
+  let ledgerRoot: string | null | undefined
+  let ledgerTurn: number | null | undefined
+  let ledgerFiles: PrefillLedgerState['files'] | undefined
+  let ledgerValue: PrefillLedgerView | undefined
+  const ledger = await ctx.sessionProjections.register({
+    key: PREFILL_LEDGER_PROJECTION_KEY,
+    stateVersion: 1,
+    stateSchema: prefillLedgerStateSchema,
+    init: initPrefillLedgerState,
+    apply: applyPrefillLedgerEvent,
+    wire: {
+      viewSchema: prefillLedgerViewSchema,
+      summary: false,
+      view: (state) => {
+        if (ledgerValue === undefined || ledgerRoot !== state.root
+          || ledgerTurn !== state.lastScanTurn || ledgerFiles !== state.files) {
+          ledgerRoot = state.root
+          ledgerTurn = state.lastScanTurn
+          ledgerFiles = state.files
+          ledgerValue = prefillLedgerView(state)
+        }
+        return ledgerValue
       },
     },
   })
@@ -116,7 +151,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const decision = await next()
     if (decision.kind === 'reject' || signal.aborted) return decision
     if (!isEligible(agent, resolved)) return decision
-    const state = projection.stateOf(agent.session)
+    const state = ledger.stateOf(agent.session)
     const refreshDue = state.baselineAt === null
       || resolved.refresh === 'step'
       || (resolved.refresh === 'turn' && state.lastScanTurn !== turn)
@@ -129,13 +164,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const scan = await scanWorkspace(fileSystem, root, resolved, signal)
     ctx.fiber.assertActive()
     const rebaseline = state.baselineAt === null || state.root !== directory
-    const ledger = new Map(state.files.map(entry => [entry.path, entry]))
+    const entries = new Map(state.files.map(entry => [entry.path, entry]))
     const prepared = rebaseline
       ? await prepareBaseline(fileSystem, scan, resolved, {
         turn,
         rootDisplay: root.displayPath,
       }, signal)
-      : await prepareDelta(fileSystem, scan, resolved, ledger, {
+      : await prepareDelta(fileSystem, scan, resolved, entries, {
         turn,
         rootDisplay: root.displayPath,
       }, signal)

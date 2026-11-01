@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Contexte de préremplissage",
+    "description": "Injecte un instantané de l'espace de travail réutilisable en cache avant la première étape du modèle, puis n'ajoute que les fichiers modifiés."
+  }
+}

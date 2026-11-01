@@ -9,8 +9,8 @@
   en: ddc5b0310cc69ee3
   zh: 9722cdd6cd83fe17
 /deepseek-ai-dsh-prefill-context/summary:
-  en: 059c12dc488a9a28
-  zh: 9d52219c381a3c1d
+  en: 09945c67d1efcd6b
+  zh: a0ad30b1cd9a5eba
 /deepseek-ai-dsh-prefill-context/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -21,8 +21,8 @@
   en: 7a7e78dd9d39800a
   zh: ad8c7783bab46e3b
 /deepseek-ai-dsh-prefill-context/use-this-package/measuring-cache-savings:
-  en: d5f9969bec63ccaf
-  zh: 111d9796c9a9499c
+  en: 390b3638692310ee
+  zh: c55e117e5d39dde7
 /deepseek-ai-dsh-prefill-context/use-this-package/configuration:
   en: 6145ba4fdec7b8d7
   zh: a54c3448e487c70d
@@ -33,14 +33,14 @@
   en: 2d21fa2aad5a729d
   zh: c1493f8d4d807471
 /deepseek-ai-dsh-prefill-context/understand-the-implementation/design-concept:
-  en: 4995da07eb6f88fe
-  zh: 8c3271922bf4e25e
+  en: e58d368c2b8b280a
+  zh: 2b5162d95aa9c840
 /deepseek-ai-dsh-prefill-context/understand-the-implementation/traversal-and-change-detection:
   en: 7c256ee6b5196eda
   zh: 4d2b7f2db821675c
 /deepseek-ai-dsh-prefill-context/understand-the-implementation/source-map:
-  en: 60c37bdf93bf3c5a
-  zh: 7505181f6598ce89
+  en: 47027c04fa94aab5
+  zh: ebce5456f7d8eb4f
 /deepseek-ai-dsh-prefill-context/further-exploration:
   en: 64fb575f80609af5
   zh: a3a1c7b795f27698
@@ -60,8 +60,8 @@
   en: 5cbb0fdd9d00d6b3
   zh: 5409736733c7ee58
 /deepseek-ai-dsh-prefill-context/known-limitations-and-deferred-work:
-  en: e3c081a0d7f38b80
-  zh: 91a8837c22026d18
+  en: 23585ad46580d9e3
+  zh: cf29ef35ab0e772e
 /deepseek-ai-dsh-prefill-context/known-limitations-and-deferred-work/dev-note:
-  en: 842800ce7f5dbcd3
-  zh: b94b6642547eb3f3
+  en: 60c841193d5d6047
+  zh: b8924f7b2899bd8d

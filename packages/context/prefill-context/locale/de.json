@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Vorabfüllungs-Kontext",
+    "description": "Fügt vor dem ersten Schritt des Modells einen cachefähigen Workspace-Snapshot ein und ergänzt danach nur geänderte Dateien."
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Contexto de prellenado",
+    "description": "Inyecta una instantánea del espacio de trabajo reutilizable en caché antes del primer paso del modelo y después solo añade los archivos modificados."
+  }
+}

@@ -135,6 +135,12 @@ describe('tokenUsage session projection', () => {
       outputTokens: 4,
       cacheReadTokens: 7,
       cacheWriteTokens: 2,
+      last: {
+        uncachedInputTokens: 10,
+        outputTokens: 4,
+        cacheReadTokens: 7,
+        cacheWriteTokens: 2,
+      },
     })
     expect(changes).toHaveLength(1)
   })
@@ -159,6 +165,12 @@ describe('tokenUsage session projection', () => {
       outputTokens: 5,
       cacheReadTokens: 8,
       cacheWriteTokens: 1,
+      last: {
+        uncachedInputTokens: 14,
+        outputTokens: 5,
+        cacheReadTokens: 8,
+        cacheWriteTokens: 1,
+      },
     })
   })
 
@@ -215,6 +227,12 @@ describe('tokenUsage session projection', () => {
       outputTokens: 7,
       cacheReadTokens: 11,
       cacheWriteTokens: 1,
+      last: {
+        uncachedInputTokens: 14,
+        outputTokens: 5,
+        cacheReadTokens: 8,
+        cacheWriteTokens: 1,
+      },
     })
   })
 
@@ -252,6 +270,12 @@ describe('tokenUsage session projection', () => {
       outputTokens: 15,
       cacheReadTokens: 2,
       cacheWriteTokens: 4,
+      last: {
+        uncachedInputTokens: 20,
+        outputTokens: 9,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 4,
+      },
     })
   })
 
@@ -265,6 +289,12 @@ describe('tokenUsage session projection', () => {
       outputTokens: 1,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      last: {
+        uncachedInputTokens: 9,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
     })
   })
 
@@ -291,6 +321,12 @@ describe('tokenUsage session projection', () => {
       outputTokens: 3,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
+      last: {
+        uncachedInputTokens: 12,
+        outputTokens: 3,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
     })
   })
 
@@ -311,6 +347,12 @@ describe('tokenUsage session projection', () => {
       outputTokens: 2,
       cacheReadTokens: 5,
       cacheWriteTokens: 0,
+      last: {
+        uncachedInputTokens: 8,
+        outputTokens: 2,
+        cacheReadTokens: 5,
+        cacheWriteTokens: 0,
+      },
     })
   })
 })

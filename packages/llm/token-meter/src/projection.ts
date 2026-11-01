@@ -5,16 +5,28 @@
  */
 
 /**
- * Durable cumulative provider usage for a complete session log.
+ * One provider-reported usage sample: the four disjoint billing buckets.
  *
- * The four buckets are disjoint. In particular, reasoning tokens are already
- * included in `outputTokens` and are not accumulated again.
+ * In particular, reasoning tokens are already included in `outputTokens` and
+ * are not accumulated again.
  */
-export interface TokenUsageProjection {
+export interface TokenUsageBuckets {
   uncachedInputTokens: number
   outputTokens: number
   cacheReadTokens: number
   cacheWriteTokens: number
+}
+
+/**
+ * Durable cumulative provider usage for a complete session log.
+ *
+ * The totals add every billed request, so on a long session they exceed the
+ * size of any one prompt. `last` reports the newest sample so a reader can
+ * show what one request cost beside the accumulated total.
+ */
+export interface TokenUsageProjection extends TokenUsageBuckets {
+  /** Buckets of the newest reported request sample; absent before any sample. */
+  last?: TokenUsageBuckets
 }
 
 /**

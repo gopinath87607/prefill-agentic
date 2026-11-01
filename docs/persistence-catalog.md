@@ -4443,7 +4443,7 @@ One of:
 
 SHA-256: `bc0934adc07249bb660190b3e4a5f9d7995ef3aaa2c827cfe3c1e4a13a2c4f7b`
 
-Sources: [`packages/context/prefill-context/src/state.ts:31`](../packages/context/prefill-context/src/state.ts)
+Sources: [`packages/context/prefill-context/src/state.ts:35`](../packages/context/prefill-context/src/state.ts)
 
 One of:
 
@@ -4468,7 +4468,7 @@ Array of [`PrefillChange`](#persistence-type-sha256-bc0934adc07249bb660190b3e4a5
 
 SHA-256: `d9def819f00dd041b0d12f68640a3ec2974c349b6d3b27cca44ed18c8fd26cac`
 
-Sources: [`packages/context/prefill-context/src/state.ts:36`](../packages/context/prefill-context/src/state.ts)
+Sources: [`packages/context/prefill-context/src/state.ts:40`](../packages/context/prefill-context/src/state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -4488,7 +4488,7 @@ Sources: [`packages/context/prefill-context/src/state.ts:36`](../packages/contex
 
 SHA-256: `69a8922009fcd6dd75436781d8a0e70f04ac0213654313c36b7ad25379d27f80`
 
-Sources: [`packages/context/prefill-context/src/state.ts:19`](../packages/context/prefill-context/src/state.ts)
+Sources: [`packages/context/prefill-context/src/state.ts:23`](../packages/context/prefill-context/src/state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5892,7 +5892,7 @@ Array of `unknown` (opaque).
 
 SHA-256: `0d751a59b1b51c748498f4f59c1ab2b5062b61d046a789553b57ff44175078d6`
 
-Sources: [`packages/context/prefill-context/src/state.ts:32`](../packages/context/prefill-context/src/state.ts)
+Sources: [`packages/context/prefill-context/src/state.ts:36`](../packages/context/prefill-context/src/state.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -5905,7 +5905,7 @@ Sources: [`packages/context/prefill-context/src/state.ts:32`](../packages/contex
 
 SHA-256: `ecf05c266dd8f30053c4e4db6878cb6aa4d489d4598633d198464c31c1fce387`
 
-Sources: [`packages/context/prefill-context/src/state.ts:33`](../packages/context/prefill-context/src/state.ts)
+Sources: [`packages/context/prefill-context/src/state.ts:37`](../packages/context/prefill-context/src/state.ts)
 
 | Property | Presence | Type |
 |---|---|---|

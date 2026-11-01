@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Prefill context",
+    "description": "Injects a cacheable workspace snapshot before the model's first step and appends only changed files afterwards."
+  }
+}

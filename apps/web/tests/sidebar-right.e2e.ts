@@ -475,8 +475,9 @@ describe('web e2e: shipped right Sidebar', () => {
 
       await expect.poll(async () => await tabTitles(column)).toEqual(['Start'])
       await expectTitleAlignment(column.locator('[data-dockkit-tab-title]'))
-      await expect.poll(async () => await column.locator('[data-sidebar-right-guide-entry]').count()).toBe(2)
+      await expect.poll(async () => await column.locator('[data-sidebar-right-guide-entry]').count()).toBe(3)
       expect(await column.locator('[data-sidebar-right-guide-entry="browser"]').count()).toBe(0)
+      expect(await column.locator('[data-sidebar-right-guide-entry="prefill"]').count()).toBe(1)
       await column.locator('[data-sidebar-right-guide-entry="files"]').click()
 
       // A manual guide is closable beside Files and suppresses another add
@@ -499,6 +500,20 @@ describe('web e2e: shipped right Sidebar', () => {
       // Back to the seeded shape the cases below start from.
       await guideTab.hover()
       await guideTab.locator('[data-dockkit-tab-close]').click()
+      await expect.poll(async () => await tabTitles(column)).toEqual(['Files'])
+      await expect.poll(async () => await addTab.count()).toBe(1)
+
+      // The prefill dashboard mounts from its shipped guide entry and reads the
+      // session projections in the same pane.
+      await addTab.click()
+      await expect.poll(async () => await column.locator('[data-sidebar-right-guide]').count()).toBe(1)
+      await column.locator('[data-sidebar-right-guide-entry="prefill"]').click()
+      await expect.poll(async () => await tabTitles(column)).toEqual(['Files', 'Prefill'])
+      await expect.poll(async () => await column.getByRole('heading', { name: 'Cache and tokens' }).count()).toBe(1)
+      const prefillTab = column.locator('[data-dockkit-tab]').filter({ hasText: 'Prefill' })
+      expect(await prefillTab.locator('[data-dockkit-tab-close]').count()).toBe(1)
+      await prefillTab.hover()
+      await prefillTab.locator('[data-dockkit-tab-close]').click()
       await expect.poll(async () => await tabTitles(column)).toEqual(['Files'])
       await expect.poll(async () => await addTab.count()).toBe(1)
       await shot(page, '02-squeezed-panel')

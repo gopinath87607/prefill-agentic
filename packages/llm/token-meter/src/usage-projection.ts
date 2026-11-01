@@ -42,23 +42,28 @@ const addReplacing = (
   cacheWriteTokens: totals.cacheWriteTokens - (previous?.cacheWriteTokens ?? 0) + next.cacheWriteTokens,
 })
 
-const projectionSchema = z.object({
+const bucketsSchema = z.object({
   uncachedInputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
   cacheReadTokens: z.number().int().nonnegative(),
   cacheWriteTokens: z.number().int().nonnegative(),
 }).strict()
 
+/** The wire view: accumulated totals plus the newest sample, when one exists. */
+const projectionSchema: z.ZodType<TokenUsageProjection> = bucketsSchema.extend({
+  last: bucketsSchema.optional(),
+}).strict().transform(({ last, ...totals }) => last === undefined ? totals : { ...totals, last })
+
 /**
  * The token-usage unit's state schema — the one definition of the state
  * shape; the state type is inferred from it.
  */
 const tokenUsageStateSchema = z.object({
-  totals: projectionSchema,
+  totals: bucketsSchema,
   last: z.object({
     turn: z.number().int().nonnegative(),
     step: z.number().int().nonnegative(),
-    buckets: projectionSchema,
+    buckets: bucketsSchema,
   }).nullable(),
 }).strict()
 
@@ -140,7 +145,10 @@ export const tokenUsageProjectionDefinition = {
       last: { turn, step, buckets },
     }
   },
-  wire: { viewSchema: projectionSchema, view: state => state.totals },
+  wire: {
+    viewSchema: projectionSchema,
+    view: state => state.last === null ? state.totals : { ...state.totals, last: state.last.buckets },
+  },
 } satisfies ProjectionDefinition<'tokenUsage', TokenUsageState>
 
 /**

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Contexto de pré-preenchimento",
+    "description": "Injeta um instantâneo da área de trabalho reutilizável em cache antes da primeira etapa do modelo e depois apenas acrescenta os arquivos alterados."
+  }
+}

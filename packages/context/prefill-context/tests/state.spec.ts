@@ -3,16 +3,21 @@ import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  applyPrefillEvent,
-  initPrefillState,
+  applyPrefillAccountingEvent,
+  applyPrefillLedgerEvent,
+  initPrefillAccountingState,
+  initPrefillLedgerState,
   parsePrefillSource,
+  prefillAccountingStateSchema,
+  prefillLedgerStateSchema,
+  prefillLedgerView,
+  prefillLedgerViewSchema,
   prefillSavingsSchema,
   prefillSavingsView,
-  prefillStateSchema,
   sameAccounting,
+  type PrefillAccounting,
   type PrefillChange,
   type PrefillContextSource,
-  type PrefillContextState,
 } from '../src/state.ts'
 
 const ROOT = '/workspace'
@@ -60,129 +65,214 @@ function entry(path: string, version: string | null, digest: string, bytes: numb
   return { action: 'set', entry: { path, version, digest, bytes } }
 }
 
-describe('prefill accounting fold', () => {
-  it('records the baseline estimate and its ledger', () => {
+/** Fold a baseline with no usage sample, the common starting point below. */
+function baselined(subject: Session, text: string, changes: PrefillChange[] = []) {
+  const baseline = appendBaseline(subject, text, changes)
+  return {
+    baseline,
+    ledger: applyPrefillLedgerEvent(initPrefillLedgerState(), baseline),
+    accounting: applyPrefillAccountingEvent(initPrefillAccountingState(), baseline, 4),
+  }
+}
+
+describe('prefill ledger fold', () => {
+  it('records the baseline snapshot and its commit', () => {
     const subject = session()
-    const baseline = appendBaseline(subject, 'x'.repeat(9), [
+    const { baseline, ledger } = baselined(subject, 'x'.repeat(9), [
       entry('b.ts', null, 'b', 2),
       entry('a.ts', 'v1', 'a', 1),
     ])
 
-    const state = applyPrefillEvent(initPrefillState(), baseline, 4)
-
-    // ceil(9 / 4) tokens of text.
-    expect(state.accounting).toEqual({ visibleTokens: 3, injectedTokens: 3, reusedTokens: 0 })
-    expect(state.root).toBe(ROOT)
-    expect(state.baselineSeq).toBe(baseline.seq)
-    expect(state.baselineAt).toBe(baseline.time)
-    expect(state.lastScanTurn).toBe(1)
-    expect(state.messageSeqs).toEqual([baseline.seq])
-    expect(state.files.map(file => file.path)).toEqual(['a.ts', 'b.ts'])
+    expect(ledger.root).toBe(ROOT)
+    expect(ledger.baselineSeq).toBe(baseline.seq)
+    expect(ledger.baselineAt).toBe(baseline.time)
+    expect(ledger.lastScanTurn).toBe(1)
+    expect(ledger.messageSeqs).toEqual([baseline.seq])
+    expect(ledger.files).toEqual([
+      { path: 'a.ts', version: 'v1', digest: 'a', bytes: 1 },
+      { path: 'b.ts', version: null, digest: 'b', bytes: 2 },
+    ])
   })
 
-  it('credits each settlement cache read to the visible prefill content, bounded by it', () => {
+  it('applies each delta update to the snapshot', () => {
     const subject = session()
-    const baseline = appendBaseline(subject, 'x'.repeat(8))
-    const withBaseline = applyPrefillEvent(initPrefillState(), baseline, 4)
-
-    // Two visible prefill tokens, so a five-token cache read credits only two.
-    const cold = applyPrefillEvent(withBaseline, settle(subject, {
-      inputTokens: 10,
-      outputTokens: 1,
-      cacheReadTokens: 5,
-    }), 4)
-    expect(cold.accounting).toEqual({ visibleTokens: 2, injectedTokens: 2, reusedTokens: 2 })
-
-    const update = appendPrefill(subject, 'y'.repeat(8), { scannedTurn: 2, root: ROOT, changes: [] })
-    const withUpdate = applyPrefillEvent(cold, update, 4)
-    expect(withUpdate.accounting).toEqual({ visibleTokens: 4, injectedTokens: 4, reusedTokens: 2 })
-
-    const warm = applyPrefillEvent(withUpdate, settle(subject, {
-      inputTokens: 3,
-      outputTokens: 1,
-      cacheReadTokens: 10,
-    }), 4)
-    expect(warm.accounting).toEqual({ visibleTokens: 4, injectedTokens: 4, reusedTokens: 6 })
-  })
-
-  it('leaves the state reference unchanged for unrelated events and unusable cache reports', () => {
-    const subject = session()
-    const state = applyPrefillEvent(initPrefillState(), appendBaseline(subject, 'x'.repeat(8)), 4)
-
-    expect(applyPrefillEvent(state, subject.append('turn/start', { turn: 1 }), 4)).toBe(state)
-    expect(applyPrefillEvent(state, settle(subject), 4)).toBe(state)
-    expect(applyPrefillEvent(state, settle(subject, {
-      inputTokens: 5,
-      outputTokens: 1,
-      cacheReadTokens: 0,
-    }), 4)).toBe(state)
-
-    const withoutBaseline = applyPrefillEvent(initPrefillState(), settle(subject, {
-      inputTokens: 5,
-      outputTokens: 1,
-      cacheReadTokens: 5,
-    }), 4)
-    expect(withoutBaseline).toEqual(initPrefillState())
-  })
-
-  it('applies a delta update to the ledger and the accounting', () => {
-    const subject = session()
-    const baseline = appendBaseline(subject, 'x'.repeat(8), [entry('a.ts', 'v1', 'a', 1)])
-    const state = applyPrefillEvent(initPrefillState(), baseline, 4)
+    const { baseline, ledger } = baselined(subject, 'x'.repeat(8), [entry('a.ts', 'v1', 'a', 1)])
 
     const update = appendPrefill(subject, 'y'.repeat(4), {
       scannedTurn: 2,
       root: ROOT,
       changes: [entry('a.ts', 'v2', 'a2', 3), { action: 'remove', path: 'missing.ts' }],
     })
-    const next = applyPrefillEvent(state, update, 4)
+    const next = applyPrefillLedgerEvent(ledger, update)
 
-    expect(next.accounting).toEqual({ visibleTokens: 3, injectedTokens: 3, reusedTokens: 0 })
     expect(next.messageSeqs).toEqual([baseline.seq, update.seq])
     expect(next.lastScanTurn).toBe(2)
     expect(next.files).toEqual([{ path: 'a.ts', version: 'v2', digest: 'a2', bytes: 3 }])
   })
 
-  it('replaces the visible prefill tokens on a second baseline while keeping cumulative totals', () => {
+  it('replaces the snapshot on a second baseline', () => {
     const subject = session()
-    const state = applyPrefillEvent(initPrefillState(), appendBaseline(subject, 'x'.repeat(8)), 4)
+    const { ledger } = baselined(subject, 'x'.repeat(8))
 
     const rebaseline = appendBaseline(subject, 'q'.repeat(16), [entry('fresh.ts', null, 'f', 1)])
-    const next = applyPrefillEvent(state, rebaseline, 4)
+    const next = applyPrefillLedgerEvent(ledger, rebaseline)
 
-    expect(next.accounting).toEqual({ visibleTokens: 4, injectedTokens: 6, reusedTokens: 0 })
+    expect(next.baselineSeq).toBe(rebaseline.seq)
     expect(next.messageSeqs).toEqual([rebaseline.seq])
     expect(next.files).toEqual([{ path: 'fresh.ts', version: null, digest: 'f', bytes: 1 }])
   })
 
-  it('clears the ledger when an update belongs to another root and keeps the totals', () => {
+  it('clears the snapshot when an update belongs to another root', () => {
     const subject = session()
-    const baseline = appendBaseline(subject, 'x'.repeat(8))
-    const reused = applyPrefillEvent(
-      applyPrefillEvent(initPrefillState(), baseline, 4),
-      settle(subject, { inputTokens: 1, outputTokens: 1, cacheReadTokens: 8 }),
-      4,
-    )
+    const { ledger } = baselined(subject, 'x'.repeat(8))
 
     const foreign = appendPrefill(subject, 'z'.repeat(40), { scannedTurn: 2, root: '/elsewhere', changes: [] })
-    const next = applyPrefillEvent(reused, foreign, 4)
 
-    expect(next).toMatchObject({
-      root: null,
-      baselineSeq: null,
-      baselineAt: null,
-      lastScanTurn: null,
-      messageSeqs: [],
-      files: [],
-    })
-    expect(next.accounting).toEqual({ visibleTokens: 0, injectedTokens: 2, reusedTokens: 2 })
+    expect(applyPrefillLedgerEvent(ledger, foreign)).toEqual(initPrefillLedgerState())
   })
 
-  it('clears the ledger when a surface replacement shadows a prefill message', () => {
+  it('clears the snapshot when a surface replacement shadows a prefill message', () => {
     const subject = session()
-    const baseline = appendBaseline(subject, 'x'.repeat(8))
-    const reused = applyPrefillEvent(
-      applyPrefillEvent(initPrefillState(), baseline, 4),
+    const { baseline, ledger } = baselined(subject, 'x'.repeat(8))
+
+    const replacement = subject.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'compacted history' }],
+      source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', startSeq: baseline.seq, endSeq: baseline.seq },
+      sourceEventSeqs: [baseline.seq],
+    })
+
+    expect(applyPrefillLedgerEvent(ledger, replacement)).toEqual(initPrefillLedgerState())
+  })
+
+  it('keeps the snapshot for unrelated events and uncovered replacements', () => {
+    const subject = session()
+    const { ledger } = baselined(subject, 'x'.repeat(8))
+    const unrelated = subject.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'ordinary request' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+
+    expect(applyPrefillLedgerEvent(ledger, subject.append('turn/start', { turn: 1 }))).toBe(ledger)
+    expect(applyPrefillLedgerEvent(ledger, unrelated)).toBe(ledger)
+  })
+})
+
+describe('prefill accounting fold', () => {
+  it('records the baseline estimate as both visible and injected', () => {
+    const subject = session()
+    const { baseline, accounting } = baselined(subject, 'x'.repeat(9))
+
+    // ceil(9 / 4) tokens of text, present in the request but not yet in a prefix.
+    expect(accounting).toMatchObject({
+      root: ROOT,
+      baselineAt: baseline.time,
+      messageSeqs: [baseline.seq],
+      accounting: { visibleTokens: 3, injectedTokens: 3, reusedTokens: 0, prefixTokens: 0 },
+    })
+  })
+
+  it('credits a settlement with the prefill tokens its cached prefix held', () => {
+    const subject = session()
+    const { accounting } = baselined(subject, 'x'.repeat(8))
+
+    // The baseline request itself has no cached prefill prefix, so its own
+    // settlement credits nothing and arms the next one.
+    const cold = applyPrefillAccountingEvent(accounting, settle(subject, {
+      inputTokens: 10,
+      outputTokens: 1,
+      cacheReadTokens: 5,
+    }), 4)
+    expect(cold.accounting).toEqual({ visibleTokens: 2, injectedTokens: 2, reusedTokens: 0, prefixTokens: 2 })
+
+    const update = appendPrefill(subject, 'y'.repeat(8), { scannedTurn: 2, root: ROOT, changes: [] })
+    const withUpdate = applyPrefillAccountingEvent(cold, update, 4)
+    expect(withUpdate.accounting).toEqual({
+      visibleTokens: 4, injectedTokens: 4, reusedTokens: 0, prefixTokens: 2,
+    })
+
+    // The cached prefix held two prefill tokens, so at most two are credited.
+    const warm = applyPrefillAccountingEvent(withUpdate, settle(subject, {
+      inputTokens: 3,
+      outputTokens: 1,
+      cacheReadTokens: 10,
+    }), 4)
+    expect(warm.accounting).toEqual({ visibleTokens: 4, injectedTokens: 4, reusedTokens: 2, prefixTokens: 4 })
+
+    const hotter = applyPrefillAccountingEvent(warm, settle(subject, {
+      inputTokens: 3,
+      outputTokens: 1,
+      cacheReadTokens: 10,
+    }), 4)
+    expect(hotter.accounting).toEqual({ visibleTokens: 4, injectedTokens: 4, reusedTokens: 6, prefixTokens: 4 })
+  })
+
+  it('leaves the state reference unchanged for unrelated events and unusable reports', () => {
+    const subject = session()
+    const { accounting } = baselined(subject, 'x'.repeat(8))
+
+    expect(applyPrefillAccountingEvent(accounting, subject.append('turn/start', { turn: 1 }), 4)).toBe(accounting)
+    // An unreported settlement advances the prefix without crediting anything.
+    const settled = applyPrefillAccountingEvent(accounting, settle(subject), 4)
+    expect(settled.accounting).toEqual({ visibleTokens: 2, injectedTokens: 2, reusedTokens: 0, prefixTokens: 2 })
+    expect(applyPrefillAccountingEvent(settled, settle(subject), 4)).toBe(settled)
+
+    const withoutBaseline = applyPrefillAccountingEvent(initPrefillAccountingState(), settle(subject, {
+      inputTokens: 5,
+      outputTokens: 1,
+      cacheReadTokens: 5,
+    }), 4)
+    expect(withoutBaseline).toEqual(initPrefillAccountingState())
+  })
+
+  it('adds each delta update to the visible and injected totals', () => {
+    const subject = session()
+    const { accounting } = baselined(subject, 'x'.repeat(8))
+
+    const update = appendPrefill(subject, 'y'.repeat(4), { scannedTurn: 2, root: ROOT, changes: [] })
+    const next = applyPrefillAccountingEvent(accounting, update, 4)
+
+    expect(next.accounting).toEqual({ visibleTokens: 3, injectedTokens: 3, reusedTokens: 0, prefixTokens: 0 })
+    expect(next.messageSeqs).toEqual([accounting.messageSeqs[0]!, update.seq])
+  })
+
+  it('replaces the visible tokens on a second baseline while keeping cumulative totals', () => {
+    const subject = session()
+    const { accounting } = baselined(subject, 'x'.repeat(8))
+
+    const rebaseline = appendBaseline(subject, 'q'.repeat(16))
+    const next = applyPrefillAccountingEvent(accounting, rebaseline, 4)
+
+    expect(next.accounting).toEqual({ visibleTokens: 4, injectedTokens: 6, reusedTokens: 0, prefixTokens: 0 })
+    expect(next.messageSeqs).toEqual([rebaseline.seq])
+  })
+
+  it('clears visibility when an update belongs to another root and keeps the totals', () => {
+    const subject = session()
+    const { accounting } = baselined(subject, 'x'.repeat(8))
+    const armed = applyPrefillAccountingEvent(accounting, settle(subject, {
+      inputTokens: 1, outputTokens: 1, cacheReadTokens: 8,
+    }), 4)
+    const reused = applyPrefillAccountingEvent(armed, settle(subject, {
+      inputTokens: 1, outputTokens: 1, cacheReadTokens: 8,
+    }), 4)
+    expect(reused.accounting.reusedTokens).toBe(2)
+
+    const foreign = appendPrefill(subject, 'z'.repeat(40), { scannedTurn: 2, root: '/elsewhere', changes: [] })
+    const next = applyPrefillAccountingEvent(reused, foreign, 4)
+
+    expect(next).toMatchObject({ root: null, baselineAt: null, messageSeqs: [] })
+    expect(next.accounting).toEqual({ visibleTokens: 0, injectedTokens: 2, reusedTokens: 2, prefixTokens: 0 })
+  })
+
+  it('clears visibility when a surface replacement shadows a prefill message', () => {
+    const subject = session()
+    const { baseline, accounting } = baselined(subject, 'x'.repeat(8))
+    const reused = applyPrefillAccountingEvent(
+      applyPrefillAccountingEvent(accounting, settle(subject, {
+        inputTokens: 1, outputTokens: 1, cacheReadTokens: 8,
+      }), 4),
       settle(subject, { inputTokens: 1, outputTokens: 1, cacheReadTokens: 8 }),
       4,
     )
@@ -194,23 +284,22 @@ describe('prefill accounting fold', () => {
       surfaceOp: { op: 'replace', startSeq: baseline.seq, endSeq: baseline.seq },
       sourceEventSeqs: [baseline.seq],
     })
-    const next = applyPrefillEvent(reused, replacement, 4)
+    const next = applyPrefillAccountingEvent(reused, replacement, 4)
 
-    expect(next.baselineSeq).toBeNull()
+    expect(next.baselineAt).toBeNull()
     expect(next.messageSeqs).toEqual([])
-    expect(next.accounting).toEqual({ visibleTokens: 0, injectedTokens: 2, reusedTokens: 2 })
+    expect(next.accounting).toEqual({ visibleTokens: 0, injectedTokens: 2, reusedTokens: 2, prefixTokens: 0 })
   })
 
-  it('keeps the ledger when a replacement does not cover a prefill message', () => {
+  it('keeps the accounting for an unrelated replacement', () => {
     const subject = session()
-    const baseline = appendBaseline(subject, 'x'.repeat(8))
-    const state = applyPrefillEvent(initPrefillState(), baseline, 4)
+    const { accounting } = baselined(subject, 'x'.repeat(8))
     const unrelated = subject.append('user/message', createUserMessage({
       content: [{ type: 'text', text: 'ordinary request' }],
       source: { kind: 'user' },
     }), { surfaceOp: 'append' })
 
-    expect(applyPrefillEvent(state, unrelated, 4)).toBe(state)
+    expect(applyPrefillAccountingEvent(accounting, unrelated, 4)).toBe(accounting)
   })
 })
 
@@ -238,12 +327,13 @@ describe('durable source validation', () => {
   })
 })
 
-describe('savings view', () => {
+describe('savings and ledger views', () => {
   it('subtracts the injected tokens from the reused tokens', () => {
     expect(prefillSavingsView(
-      { visibleTokens: 3, injectedTokens: 100, reusedTokens: 250 },
+      { visibleTokens: 3, injectedTokens: 100, reusedTokens: 250, prefixTokens: 0 },
       1_500,
     )).toEqual({
+      visibleTokens: 3,
       injectedTokens: 100,
       reusedTokens: 250,
       savedTokens: 150,
@@ -254,9 +344,10 @@ describe('savings view', () => {
 
   it('never reports negative savings and rounds the saved time', () => {
     expect(prefillSavingsView(
-      { visibleTokens: 3, injectedTokens: 250, reusedTokens: 100 },
+      { visibleTokens: 3, injectedTokens: 250, reusedTokens: 100, prefixTokens: 0 },
       1_000,
     )).toEqual({
+      visibleTokens: 3,
       injectedTokens: 250,
       reusedTokens: 100,
       savedTokens: 0,
@@ -264,36 +355,79 @@ describe('savings view', () => {
       tokensPerSecond: 1_000,
     })
     expect(prefillSavingsView(
-      { visibleTokens: 1, injectedTokens: 100, reusedTokens: 101 },
+      { visibleTokens: 1, injectedTokens: 100, reusedTokens: 101, prefixTokens: 0 },
       3,
     ).savedMs).toBe(333)
   })
 
-  it('compares accounting by its counts', () => {
-    const accounting = { visibleTokens: 1, injectedTokens: 2, reusedTokens: 3 }
+  it('compares accounting by its client-visible counts', () => {
+    const accounting: PrefillAccounting = {
+      visibleTokens: 1, injectedTokens: 2, reusedTokens: 3, prefixTokens: 4,
+    }
     expect(sameAccounting(accounting, { ...accounting })).toBe(true)
+    // The prefix arms the next settlement; it never renders, so it is excluded.
+    expect(sameAccounting(accounting, { ...accounting, prefixTokens: 9 })).toBe(true)
     expect(sameAccounting(accounting, { ...accounting, visibleTokens: 2 })).toBe(false)
     expect(sameAccounting(accounting, { ...accounting, injectedTokens: 3 })).toBe(false)
     expect(sameAccounting(accounting, { ...accounting, reusedTokens: 4 })).toBe(false)
   })
+
+  it('serves the renderable fields of the visible snapshot', () => {
+    const subject = session()
+    const { ledger } = baselined(subject, 'x'.repeat(8), [entry('nested/a.ts', 'v1', 'a', 12)])
+
+    expect(prefillLedgerView(ledger)).toEqual({
+      root: ROOT,
+      lastScanTurn: 1,
+      files: [{ path: 'nested/a.ts', bytes: 12 }],
+    })
+  })
 })
 
 describe('projection schemas', () => {
-  it('accepts the empty state and rejects negative accounting', () => {
-    const state = initPrefillState()
-    expect(prefillStateSchema.parse(state)).toEqual(state)
-    const invalid: PrefillContextState = {
+  it('accepts the empty accounting state and rejects negative counts', () => {
+    const state = initPrefillAccountingState()
+    expect(prefillAccountingStateSchema.parse(state)).toEqual(state)
+    expect(prefillAccountingStateSchema.safeParse({
       ...state,
-      accounting: { visibleTokens: -1, injectedTokens: 0, reusedTokens: 0 },
-    }
-    expect(prefillStateSchema.safeParse(invalid).success).toBe(false)
+      accounting: { visibleTokens: -1, injectedTokens: 0, reusedTokens: 0, prefixTokens: 0 },
+    }).success).toBe(false)
+    expect(prefillAccountingStateSchema.safeParse({
+      ...state,
+      accounting: { visibleTokens: 0, injectedTokens: 0, reusedTokens: 0, prefixTokens: -1 },
+    }).success).toBe(false)
+  })
+
+  it('accepts the empty ledger state and rejects out-of-contract entries', () => {
+    const state = initPrefillLedgerState()
+    expect(prefillLedgerStateSchema.parse(state)).toEqual(state)
+    expect(prefillLedgerStateSchema.safeParse({ ...state, lastScanTurn: 0 }).success).toBe(false)
+    expect(prefillLedgerStateSchema.safeParse({
+      ...state,
+      files: [{ path: 'a.ts', version: null, digest: 'a', bytes: -1 }],
+    }).success).toBe(false)
   })
 
   it('accepts the served savings view and rejects out-of-contract values', () => {
-    const view = prefillSavingsView({ visibleTokens: 1, injectedTokens: 100, reusedTokens: 250 }, 1_000)
+    const view = prefillSavingsView(
+      { visibleTokens: 1, injectedTokens: 100, reusedTokens: 250, prefixTokens: 0 },
+      1_000,
+    )
     expect(prefillSavingsSchema.parse(view)).toEqual(view)
     expect(prefillSavingsSchema.safeParse({ ...view, extra: true }).success).toBe(false)
+    expect(prefillSavingsSchema.safeParse({ ...view, visibleTokens: -1 }).success).toBe(false)
     expect(prefillSavingsSchema.safeParse({ ...view, savedMs: -1 }).success).toBe(false)
     expect(prefillSavingsSchema.safeParse({ ...view, tokensPerSecond: 0 }).success).toBe(false)
+  })
+
+  it('accepts the served ledger view and rejects out-of-contract values', () => {
+    const view = { root: ROOT, lastScanTurn: 1, files: [{ path: 'a.ts', bytes: 3 }] }
+    expect(prefillLedgerViewSchema.parse(view)).toEqual(view)
+    expect(prefillLedgerViewSchema.safeParse({ ...view, extra: true }).success).toBe(false)
+    expect(prefillLedgerViewSchema.safeParse({
+      ...view,
+      files: [{ path: 'a.ts', bytes: 3, digest: 'a' }],
+    }).success).toBe(false)
+    expect(prefillLedgerViewSchema.safeParse({ ...view, files: [{ path: 'a.ts', bytes: -1 }] }).success).toBe(false)
   })
 })
