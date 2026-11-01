@@ -9,8 +9,11 @@
  */
 import type { ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-locale/client'
-import type { PrefillLedgerView, PrefillSavingsView } from '@deepseek-ai/dsh-prefill-context/client'
+import type {
+  PrefillLedgerView, PrefillSavingsView, PrefillSelectionFallback, PrefillSelectionView,
+} from '@deepseek-ai/dsh-prefill-context/client'
 import type { ContextPressureProjection, TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
+import type { PrefillKey } from './locales.ts'
 import {
   billedInput,
   formatBytes,
@@ -70,6 +73,19 @@ function UsageRow({ label, total, last }: {
   )
 }
 
+/** One label/value row of the definition lists. */
+function MetaRow({ label, children }: {
+  readonly label: string
+  readonly children: ReactNode
+}): ReactNode {
+  return (
+    <div className={css.metaRow}>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  )
+}
+
 /** The prefill savings readings, including the file count when the ledger is served. */
 function SavingsReadings({ savings, fileCount, t }: {
   readonly savings: PrefillSavingsView
@@ -83,14 +99,28 @@ function SavingsReadings({ savings, fileCount, t }: {
         <Tile label={t('savings.visible')} value={formatCount(savings.visibleTokens)} />
         <Tile label={t('savings.injected')} value={formatCount(savings.injectedTokens)} />
         <Tile label={t('savings.reused')} value={formatCount(savings.reusedTokens)} />
+        <Tile label={t('savings.selectorCalls')} value={formatCount(savings.selectorCalls)} />
+        <Tile label={t('savings.selectorTokens')} value={formatCount(savings.selectorTokens)} />
         <Tile label={t('savings.saved')} value={formatCount(savings.savedTokens)} />
         <Tile label={t('savings.time')} value={formatDuration(savings.savedMs, t)} />
       </div>
       <p className={css.note}>{t('savings.note', { rate: formatCount(savings.tokensPerSecond) })}</p>
-      {savings.savedTokens === 0 ? <p className={css.note}>{t('savings.pending')}</p> : null}
+      {savings.selectorCalls === 0 ? null : <p className={css.note}>{t('savings.selectorNote')}</p>}
+      {savings.reusedTokens === 0 ? <p className={css.note}>{t('savings.pending')}</p> : null}
     </>
   )
 }
+
+/** Localized sentence for each reason a selection fell back to deterministic ordering. */
+const FALLBACK_KEYS = {
+  'no-candidates': 'fallback.no-candidates',
+  'no-request': 'fallback.no-request',
+  'llm-unavailable': 'fallback.llm-unavailable',
+  'no-route': 'fallback.no-route',
+  'timeout': 'fallback.timeout',
+  'stream-error': 'fallback.stream-error',
+  'invalid-response': 'fallback.invalid-response',
+} satisfies Record<PrefillSelectionFallback, PrefillKey>
 
 /** The files the visible prefill snapshot carries, with the scan that produced them. */
 function FilesSection({ ledger, t }: {
@@ -104,14 +134,10 @@ function FilesSection({ ledger, t }: {
     <div className={css.subsection}>
       <h3 className={css.subheading}>{t('savings.filesTitle', { count: ledger.files.length })}</h3>
       <dl className={css.meta}>
-        <div className={css.metaRow}>
-          <dt>{t('savings.root')}</dt>
-          <dd className={css.path}>{ledger.root}</dd>
-        </div>
-        <div className={css.metaRow}>
-          <dt>{t('savings.lastScan')}</dt>
-          <dd>{ledger.lastScanTurn === null ? t('value.none') : t('savings.turn', { turn: ledger.lastScanTurn })}</dd>
-        </div>
+        <MetaRow label={t('savings.root')}><span className={css.path}>{ledger.root}</span></MetaRow>
+        <MetaRow label={t('savings.lastScan')}>
+          {ledger.lastScanTurn === null ? t('value.none') : t('savings.turn', { turn: ledger.lastScanTurn })}
+        </MetaRow>
       </dl>
       {ledger.files.length === 0
         ? <p className={css.note}>{t('savings.noFiles')}</p>
@@ -119,12 +145,53 @@ function FilesSection({ ledger, t }: {
           <ul className={css.files}>
             {ledger.files.map(file => (
               <li key={file.path} className={css.file}>
-                <span className={css.filePath}>{file.path}</span>
+                <span className={css.fileText}>
+                  <span className={css.filePath}>{file.path}</span>
+                  {file.reason === null ? null : <span className={css.fileReason}>{file.reason}</span>}
+                </span>
                 <span className={css.fileBytes}>{formatBytes(file.bytes, t)}</span>
               </li>
             ))}
           </ul>
         )}
+    </div>
+  )
+}
+
+/** Which method ordered the latest baseline, its route and cost, and any fallback. */
+function SelectionSection({ selection, t }: {
+  readonly selection: PrefillSelectionView
+  readonly t: PrefillTranslate
+}): ReactNode {
+  const route = selection.provider === null || selection.model === null
+    ? t('value.none')
+    : `${selection.provider} / ${selection.model}`
+  return (
+    <div className={css.subsection}>
+      <h3 className={css.subheading}>{t('selection.title')}</h3>
+      <dl className={css.meta}>
+        <MetaRow label={t('selection.method')}>
+          {selection.selection === 'model' ? t('selection.model') : t('selection.deterministic')}
+        </MetaRow>
+        <MetaRow label={t('selection.route')}>{route}</MetaRow>
+        <MetaRow label={t('selection.chosen')}>{formatCount(selection.files.length)}</MetaRow>
+        {selection.dropped === 0 ? null : (
+          <MetaRow label={t('selection.dropped')}>{formatCount(selection.dropped)}</MetaRow>
+        )}
+        <MetaRow label={t('selection.duration')}>
+          {selection.durationMs === null ? t('value.none') : formatDuration(selection.durationMs, t)}
+        </MetaRow>
+        <MetaRow label={t('selection.tokens')}>{formatCount(selection.tokens)}</MetaRow>
+      </dl>
+      {selection.fallback === null
+        ? null
+        : (
+          <>
+            <p className={css.note}>{t(FALLBACK_KEYS[selection.fallback])}</p>
+            {selection.detail === null ? null : <p className={css.note}>{selection.detail}</p>}
+          </>
+        )}
+      <p className={css.note}>{t('selection.note')}</p>
     </div>
   )
 }
@@ -229,6 +296,9 @@ export function PrefillDashboard({ useProjection, t }: PrefillDashboardProps): R
             ? <p className={css.note}>{t('savings.unavailable')}</p>
             : <SavingsReadings savings={savings} fileCount={ledger?.files.length} t={t} />}
           <FilesSection ledger={ledger} t={t} />
+          {ledger === undefined || ledger.selection === null
+            ? null
+            : <SelectionSection selection={ledger.selection} t={t} />}
         </section>
         <section className={css.section} aria-label={t('tokens.title')}>
           <h2 className={css.heading}>{t('tokens.title')}</h2>

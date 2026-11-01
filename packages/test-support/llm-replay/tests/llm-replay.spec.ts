@@ -1129,6 +1129,50 @@ describe('deriveReplayScript', () => {
     }])
   })
 
+  it('replays a dispatched prefill selection stream from its recorded output', () => {
+    const block = { type: 'text' as const, text: '{"files":[]}' }
+    const usage = { inputTokens: 11, outputTokens: 4 }
+    const events: SessionEvent[] = [{
+      type: 'prefill/selection',
+      seq: SessionSeq(1),
+      time: 0,
+      data: { turn: 1, selection: 'model', files: [], rawOutput: [block], usage, llmStreamCall: true },
+    }]
+
+    expect(deriveReplayScript(events)).toEqual([{
+      kind: 'chunks',
+      chunks: [
+        { type: 'block-start', index: 0, blockType: 'text' },
+        { type: 'block-end', index: 0, block },
+        { type: 'usage', usage },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ],
+    }])
+  })
+
+  it('ignores a prefill selection that dispatched no stream call', () => {
+    const events: SessionEvent[] = [{
+      type: 'prefill/selection',
+      seq: SessionSeq(1),
+      time: 0,
+      data: { turn: 1, selection: 'deterministic', fallback: 'no-candidates', files: [] },
+    }]
+
+    expect(deriveReplayScript(events)).toEqual([])
+  })
+
+  it('rejects a dispatched prefill selection without its complete output', () => {
+    const events: SessionEvent[] = [{
+      type: 'prefill/selection',
+      seq: SessionSeq(1),
+      time: 0,
+      data: { turn: 1, selection: 'model', files: [], llmStreamCall: true },
+    }]
+
+    expect(() => deriveReplayScript(events))
+      .toThrow('llm-replay: prefill/selection marks an LLM stream call without rawOutput')
+  })
+
   it('throws on a group that lacks a terminal finish chunk (a thrown stream)', () => {
     // A thrown stream(): prefix chunks logged, then turn/end (error reason), NO finish.
     const events: SessionEvent[] = [

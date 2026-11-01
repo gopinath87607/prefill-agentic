@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-11-01-model-driven-prefill-selection.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-01-model-driven-prefill-selection.md
+/agent-note-the-model-chooses-which-files-a-prefill-baseline-carries:
+  en: bdd51d866696b708
+  zh: 3c61cdfbb9b21ec5
+/agent-note-the-model-chooses-which-files-a-prefill-baseline-carries/problem:
+  en: 6bc37bece59f5383
+  zh: aeedd636c5d46afc
+/agent-note-the-model-chooses-which-files-a-prefill-baseline-carries/decision:
+  en: 1c611d0c6de7fe50
+  zh: 2da567b14a08c0c6
+/agent-note-the-model-chooses-which-files-a-prefill-baseline-carries/alternatives-considered:
+  en: b8d5a02c124cd272
+  zh: 4a1e20149ba657f0
+/agent-note-the-model-chooses-which-files-a-prefill-baseline-carries/consequences:
+  en: 417f50df8dcdff40
+  zh: d06e5bcf40f980d3
+/agent-note-the-model-chooses-which-files-a-prefill-baseline-carries/testing:
+  en: 6288bc9896f8f960
+  zh: f095ceaa0d97fa36

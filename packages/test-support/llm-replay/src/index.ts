@@ -1,7 +1,7 @@
 /**
  * Keyless snapshot-test LLM replay. It derives one model-call script per
- * recorded session from v3 embedded Assistant streams and explicitly marked local
- * compaction calls, then binds fresh live sessions to parent/child scripts by
+ * recorded session from v3 embedded Assistant streams and explicitly marked
+ * local compaction and prefill-selection calls, then binds fresh live sessions to parent/child scripts by
  * first-call order. Throw and hang cases require an explicit override because
  * a session log cannot reconstruct them alone.
  * @module @deepseek-ai/dsh-llm-replay
@@ -12,6 +12,7 @@ import { delimiter as pathDelimiter } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-deepseek-llm-api-extensions'
+import type {} from '@deepseek-ai/dsh-prefill-context'
 import { SESSION_FORMAT_VERSION, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SessionLogOffset as SessionLogOffsetType } from '@deepseek-ai/dsh-session'
 import {
@@ -455,9 +456,10 @@ export function parseSessionHeader(text: string): {
 /**
  * Reconstruct the per-`stream()` replay script from a recorded session log.
  *
- * Reads one embedded stream from each Assistant settlement. A `compaction/summary` explicitly marked
- * as one local LLM-stream call becomes a canonical successful stream from its
- * complete `rawOutput` at the summary's log position. A
+ * Reads one embedded stream from each Assistant settlement. A `compaction/summary`
+ * or `prefill/selection` event explicitly marked as one local LLM-stream call
+ * becomes a canonical successful stream from its complete `rawOutput` at that
+ * event's log position. A
  * missing assistant terminator means the live stream threw, so derivation
  * rejects and the scenario must provide an explicit override. Multiple calls
  * may share one turn and step when the loop retries.
@@ -477,7 +479,7 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
     script.push({ kind: 'chunks', chunks })
   }
   for (const event of events) {
-    if (event.type === 'compaction/summary') {
+    if (event.type === 'compaction/summary' || event.type === 'prefill/selection') {
       // JSONL decoding crosses an untyped durable boundary, so retain its wider
       // shape even though current in-process producers enforce this correlation.
       const persisted: {
@@ -487,16 +489,9 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
       } = event.data
       if (persisted.llmStreamCall === true) {
         if (persisted.rawOutput === undefined) {
-          throw new Error('llm-replay: compaction/summary marks an LLM stream call without rawOutput')
+          throw new Error(`llm-replay: ${event.type} marks an LLM stream call without rawOutput`)
         }
-        const chunks: StreamChunk[] = []
-        for (const [index, block] of persisted.rawOutput.entries()) {
-          chunks.push({ type: 'block-start', index, blockType: block.type })
-          chunks.push({ type: 'block-end', index, block })
-        }
-        if (persisted.usage !== undefined) chunks.push({ type: 'usage', usage: persisted.usage })
-        chunks.push({ type: 'finish', reason: { kind: 'stop' } })
-        script.push({ kind: 'chunks', chunks })
+        script.push({ kind: 'chunks', chunks: recordedStream(persisted.rawOutput, persisted.usage) })
       }
       continue
     }
@@ -505,6 +500,24 @@ export function deriveReplayScript(events: SessionEvent[]): ReplayEntry[] {
     close(`${String(event.data.turn)}/${String(event.data.step)}`, chunks)
   }
   return script
+}
+
+/**
+ * Reconstruct the canonical successful stream of one log-only auxiliary call
+ * from its complete raw output.
+ * @param rawOutput - block output exactly as the recorded call emitted it.
+ * @param usage - provider usage reported for that call, when available.
+ * @returns stream chunks ending in a `stop` finish.
+ */
+function recordedStream(rawOutput: readonly ContentBlock[], usage: TokenUsage | undefined): StreamChunk[] {
+  const chunks: StreamChunk[] = []
+  for (const [index, block] of rawOutput.entries()) {
+    chunks.push({ type: 'block-start', index, blockType: block.type })
+    chunks.push({ type: 'block-end', index, block })
+  }
+  if (usage !== undefined) chunks.push({ type: 'usage', usage })
+  chunks.push({ type: 'finish', reason: { kind: 'stop' } })
+  return chunks
 }
 
 /**

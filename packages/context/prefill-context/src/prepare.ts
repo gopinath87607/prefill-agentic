@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import type { ResolvedPrefillConfig } from './config.ts'
 import type { ScanCandidate, ScanResult } from './scan.ts'
-import type { PrefillChange, PrefillFileEntry } from './state.ts'
+import type { PrefillChange, PrefillFileEntry, PrefillSelectionFile } from './state.ts'
 import {
   estimateTokens,
   renderBaselineText,
@@ -34,6 +34,11 @@ export interface PrepareContext {
   turn: number
   /** Root path shown to the model. */
   rootDisplay: string
+  /**
+   * Successful model selection whose path order and reasons replace the
+   * deterministic shallow-first order, or undefined for deterministic ordering.
+   */
+  selection?: readonly PrefillSelectionFile[] | undefined
 }
 
 interface LoadedFile {
@@ -52,11 +57,16 @@ const UNREADABLE_DETAIL_SEPARATOR = ': '
 const EMPTY_PATH_INDEX: PathIndex = { paths: [], omitted: 0 }
 
 /**
- * Select shallow files first until the baseline budget is full.
+ * Select baseline files until the budget is full.
+ *
+ * Without a model selection, shallow files come first. A successful selection
+ * supplies both the priority order and the paths considered, so unselected
+ * files are not read; its path index names only selected files that did not
+ * fit. Each committed entry records the model-written reason when one exists.
  * @param fileSystem - mounted filesystem service.
  * @param scan - completed workspace scan.
  * @param config - normalized budgets and limits.
- * @param context - turn and displayed root.
+ * @param context - turn, displayed root, and optional model selection.
  * @param signal - aborts file reads.
  * @returns the prepared baseline message.
  */
@@ -77,8 +87,16 @@ export async function prepareBaseline(
   let unreadable = 0
   let overBudget = 0
   const unreadableDetails: string[] = []
+  const candidateByPath = new Map(scan.candidates.map(candidate => [candidate.path, candidate]))
+  const reasonByPath = new Map(context.selection?.map(file => [file.path, file.reason]) ?? [])
+  const ordered = context.selection === undefined
+    ? [...scan.candidates].sort(compareCandidates)
+    : context.selection.flatMap((file) => {
+      const candidate = candidateByPath.get(file.path)
+      return candidate === undefined ? [] : [candidate]
+    })
 
-  for (const candidate of [...scan.candidates].sort(compareCandidates)) {
+  for (const candidate of ordered) {
     signal?.throwIfAborted()
     if (candidate.size !== undefined) {
       if (candidate.size > config.maxFileBytes) {
@@ -117,6 +135,7 @@ export async function prepareBaseline(
     }
     blocks.push(block)
     includedPaths.add(candidate.path)
+    const reason = reasonByPath.get(candidate.path)
     changes.push({
       action: 'set',
       entry: {
@@ -124,20 +143,17 @@ export async function prepareBaseline(
         version: candidate.version,
         digest: outcome.file.digest,
         bytes: outcome.file.bytes,
+        ...reason === undefined ? {} : { reason },
       },
     })
     used += tokens
   }
 
+  const indexPathList = context.selection === undefined
+    ? scan.candidates.map(candidate => candidate.path).filter(path => !includedPaths.has(path)).sort(compareStrings)
+    : ordered.map(candidate => candidate.path).filter(path => !includedPaths.has(path))
   const pathIndex = config.includePathIndex
-    ? selectPathIndex(
-      scan.candidates
-        .map(candidate => candidate.path)
-        .filter(path => !includedPaths.has(path))
-        .sort(compareStrings),
-      config.indexBudgetTokens,
-      config.charsPerToken,
-    )
+    ? selectPathIndex(indexPathList, config.indexBudgetTokens, config.charsPerToken)
     : EMPTY_PATH_INDEX
 
   return {
@@ -268,6 +284,7 @@ export async function prepareDelta(
         version: candidate.version,
         digest: outcome.file.digest,
         bytes: outcome.file.bytes,
+        ...previous === undefined || previous.reason === undefined ? {} : { reason: previous.reason },
       },
     })
     if (previous === undefined) added += 1
@@ -367,7 +384,14 @@ async function readCandidate(
   }
 }
 
-function compareCandidates(left: ScanCandidate, right: ScanCandidate): number {
+/**
+ * Deterministic shallow-first order shared by budgeted preparation and the
+ * selection manifest: fewer path segments first, then path.
+ * @param left - one candidate.
+ * @param right - the other candidate.
+ * @returns negative when `left` sorts first.
+ */
+export function compareCandidates(left: ScanCandidate, right: ScanCandidate): number {
   const depth = depthOf(left.path) - depthOf(right.path)
   return depth === 0 ? compareStrings(left.path, right.path) : depth
 }

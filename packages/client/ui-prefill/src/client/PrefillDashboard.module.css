@@ -158,10 +158,24 @@
   border-top: 0.5px solid var(--dsw-alias-border-l1);
 }
 
+.fileText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .filePath {
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--dsw-alias-label-secondary);
+}
+
+.fileReason {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .fileBytes {

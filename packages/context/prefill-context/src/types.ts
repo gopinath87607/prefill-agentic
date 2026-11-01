@@ -26,7 +26,11 @@ export interface PrefillSavingsView {
   injectedTokens: number
   /** Provider-reported prompt tokens served from cache that held prefill content. */
   reusedTokens: number
-  /** Net tokens whose prompt processing the prefill avoided; never negative. */
+  /** Prompt and output tokens every dispatched selection call has introduced. */
+  selectorTokens: number
+  /** Number of dispatched selection calls whose usage is included in {@link selectorTokens}. */
+  selectorCalls: number
+  /** Net tokens whose prompt processing the prefill avoided after selection cost; never negative. */
   savedTokens: number
   /** {@link savedTokens} at the configured uncached prompt throughput. */
   savedMs: number
@@ -40,6 +44,50 @@ export interface PrefillFileView {
   path: string
   /** UTF-8 byte length of the prefilled content. */
   bytes: number
+  /** Model-written reason the path was selected, or null under deterministic ordering. */
+  reason: string | null
+}
+
+/** One path the selection call chose, with its short reason. */
+export interface PrefillSelectionFileView {
+  /** Workspace-relative path that appeared in the candidate manifest. */
+  path: string
+  /** Short model-written reason the path matters to the request. */
+  reason: string
+}
+
+/** Why the model selection did not produce the baseline ordering. */
+export type PrefillSelectionFallback =
+  | 'no-candidates'
+  | 'no-request'
+  | 'llm-unavailable'
+  | 'no-route'
+  | 'timeout'
+  | 'stream-error'
+  | 'invalid-response'
+
+/** Latest baseline selection, as rendered by the dashboard. */
+export interface PrefillSelectionView {
+  /** Turn whose pre-step ran the selection. */
+  turn: number
+  /** Baseline ordering that actually ran. */
+  selection: 'model' | 'deterministic'
+  /** Reason the configured model selection was not used, or null. */
+  fallback: PrefillSelectionFallback | null
+  /** Short diagnostic detail for a fallback, or null. */
+  detail: string | null
+  /** Provider route the selection call used, or null without a call. */
+  provider: string | null
+  /** Exact model id the selection call used, or null without a call. */
+  model: string | null
+  /** Paths the model chose, in its priority order; empty for deterministic ordering. */
+  files: readonly PrefillSelectionFileView[]
+  /** Valid-looking entries dropped as duplicates, unknown paths, or over the cap. */
+  dropped: number
+  /** End-to-end duration of the selection call, or null without a call. */
+  durationMs: number | null
+  /** Reported prompt and output tokens of the selection call. */
+  tokens: number
 }
 
 /**
@@ -56,6 +104,8 @@ export interface PrefillLedgerView {
   lastScanTurn: number | null
   /** Files whose contents are in the visible snapshot, sorted by path. */
   files: readonly PrefillFileView[]
+  /** Latest baseline selection, or null before the first baseline. */
+  selection: PrefillSelectionView | null
 }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {

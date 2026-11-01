@@ -5,6 +5,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 
 /** Default extensions treated as UTF-8 text. */
 const DEFAULT_INCLUDE_EXTENSIONS = [
@@ -226,6 +227,14 @@ export type PrefillPosition = 'before' | 'after'
 /** Which sessions receive snapshots. */
 export type PrefillAgentScope = 'main' | 'all'
 
+/**
+ * How the baseline chooses which file contents to inject.
+ *
+ * `model` asks the routed model to pick relevant paths from the scanned
+ * candidates; `deterministic` keeps the shallow-first path order.
+ */
+export type PrefillSelectionMode = 'model' | 'deterministic'
+
 /** Row configuration for workspace prefill snapshots. */
 export interface Config {
   /** Token budget for the first snapshot; the header reserve is subtracted from it. */
@@ -252,6 +261,20 @@ export interface Config {
   position?: PrefillPosition
   /** Sessions that receive snapshots: only top-level agents, or every agent including subagents. */
   agents?: PrefillAgentScope
+  /** Let the routed model choose which candidate paths enter the baseline. */
+  selection?: PrefillSelectionMode
+  /** Provider route for the selection call; must be paired with `selectorModel`. */
+  selectorProvider?: string
+  /** Model id for the selection call; must be paired with `selectorProvider`. */
+  selectorModel?: string
+  /** Total estimated input-token budget for the selection request and candidate manifest. */
+  selectorInputTokens?: number
+  /** Largest number of paths the selection call may choose. */
+  selectorMaxFiles?: number
+  /** Output-token cap for the selection call. */
+  selectorMaxOutputTokens?: number
+  /** End-to-end deadline for the selection call. */
+  selectorTimeoutMs?: number
   /** List paths whose contents were not included, subject to `indexBudgetTokens`. */
   includePathIndex?: boolean
   /** Token budget for the path index, which is appended in addition to the content budget. */
@@ -296,6 +319,13 @@ export interface ResolvedPrefillConfig {
   refresh: PrefillRefresh
   position: PrefillPosition
   agents: PrefillAgentScope
+  selection: PrefillSelectionMode
+  selectorProvider: string | undefined
+  selectorModel: string | undefined
+  selectorInputTokens: number
+  selectorMaxFiles: number
+  selectorMaxOutputTokens: number
+  selectorTimeoutMs: number
   includePathIndex: boolean
   indexBudgetTokens: number
   respectGitignore: boolean
@@ -322,6 +352,13 @@ export const Config: z<Config> = z.object({
   refresh: z.union(['turn', 'step', 'never'] as const).default('turn'),
   position: z.union(['before', 'after'] as const).default('after'),
   agents: z.union(['main', 'all'] as const).default('all'),
+  selection: z.union(['model', 'deterministic'] as const).default('model'),
+  selectorProvider: z.string(),
+  selectorModel: z.string(),
+  selectorInputTokens: z.number().step(1).min(1).default(16_000),
+  selectorMaxFiles: z.number().step(1).min(1).default(64),
+  selectorMaxOutputTokens: z.number().step(1).min(1).default(2_048),
+  selectorTimeoutMs: z.number().step(1).min(1).max(MAX_TIMER_DELAY_MS).default(30_000),
   includePathIndex: z.boolean().default(true),
   indexBudgetTokens: z.number().step(1).min(0).default(4_000),
   respectGitignore: z.boolean().default(true),
@@ -341,6 +378,15 @@ export const Config: z<Config> = z.object({
  * @throws TypeError when a numeric setting or name list cannot be used.
  */
 export function resolveConfig(config: Config): ResolvedPrefillConfig {
+  const selectorProvider = optionalName(config.selectorProvider, 'selectorProvider')
+  const selectorModel = optionalName(config.selectorModel, 'selectorModel')
+  if ((selectorProvider === undefined) !== (selectorModel === undefined)) {
+    throw new TypeError('prefill-context: selectorProvider and selectorModel must be configured together')
+  }
+  const selectorTimeoutMs = positiveInteger(config.selectorTimeoutMs ?? 30_000, 'selectorTimeoutMs')
+  if (selectorTimeoutMs > MAX_TIMER_DELAY_MS) {
+    throw new TypeError(`prefill-context: selectorTimeoutMs must not exceed ${String(MAX_TIMER_DELAY_MS)}`)
+  }
   return {
     budgetTokens: nonNegativeInteger(config.budgetTokens ?? 150_000, 'budgetTokens'),
     deltaBudgetTokens: nonNegativeInteger(config.deltaBudgetTokens ?? 32_000, 'deltaBudgetTokens'),
@@ -354,6 +400,13 @@ export function resolveConfig(config: Config): ResolvedPrefillConfig {
     refresh: oneOf(config.refresh ?? 'turn', ['turn', 'step', 'never'], 'refresh'),
     position: oneOf(config.position ?? 'after', ['before', 'after'], 'position'),
     agents: oneOf(config.agents ?? 'all', ['main', 'all'], 'agents'),
+    selection: oneOf(config.selection ?? 'model', ['model', 'deterministic'], 'selection'),
+    selectorProvider,
+    selectorModel,
+    selectorInputTokens: positiveInteger(config.selectorInputTokens ?? 16_000, 'selectorInputTokens'),
+    selectorMaxFiles: positiveInteger(config.selectorMaxFiles ?? 64, 'selectorMaxFiles'),
+    selectorMaxOutputTokens: positiveInteger(config.selectorMaxOutputTokens ?? 2_048, 'selectorMaxOutputTokens'),
+    selectorTimeoutMs,
     includePathIndex: config.includePathIndex ?? true,
     indexBudgetTokens: nonNegativeInteger(config.indexBudgetTokens ?? 4_000, 'indexBudgetTokens'),
     respectGitignore: config.respectGitignore ?? true,
@@ -373,6 +426,13 @@ export function resolveConfig(config: Config): ResolvedPrefillConfig {
       config.excludedFilePatterns ?? [...DEFAULT_EXCLUDED_FILE_PATTERNS],
     ),
   }
+}
+
+function optionalName(value: string | undefined, field: string): string | undefined {
+  if (value === undefined) return undefined
+  const name = value.trim()
+  if (name.length === 0) throw new TypeError(`prefill-context: ${field} must not be empty`)
+  return name
 }
 
 function nonNegativeInteger(value: number, field: string): number {

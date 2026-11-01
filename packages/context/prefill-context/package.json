@@ -46,6 +46,7 @@
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
+    "@deepseek-ai/dsh-timeout": "workspace:*",
     "@deepseek-ai/dsh-working-directory": "workspace:*"
   },
   "devDependencies": {
@@ -60,6 +61,7 @@
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
+    "@deepseek-ai/dsh-timeout": "workspace:*",
     "@deepseek-ai/dsh-working-directory": "workspace:*"
   }
 }

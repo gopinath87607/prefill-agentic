@@ -9,8 +9,8 @@
   en: ddc5b0310cc69ee3
   zh: 9722cdd6cd83fe17
 /deepseek-ai-dsh-prefill-context/summary:
-  en: 09945c67d1efcd6b
-  zh: a0ad30b1cd9a5eba
+  en: 457fefbec8ef88e4
+  zh: 13e6d82f1012e29f
 /deepseek-ai-dsh-prefill-context/table-of-contents:
   en: d152484eb41ac6b4
   zh: 09388d293f9be9cb
@@ -18,14 +18,17 @@
   en: 6186178a611b5d1e
   zh: 06a8e159be5a0d4d
 /deepseek-ai-dsh-prefill-context/use-this-package/choosing-a-budget:
-  en: 7a7e78dd9d39800a
-  zh: ad8c7783bab46e3b
+  en: ec583fca2f01938d
+  zh: 3469776905b2edb6
+/deepseek-ai-dsh-prefill-context/use-this-package/choosing-the-files-to-prefill:
+  en: 8804df613b922e2a
+  zh: 91e03488a52ec539
 /deepseek-ai-dsh-prefill-context/use-this-package/measuring-cache-savings:
-  en: 390b3638692310ee
-  zh: c55e117e5d39dde7
+  en: 0d94c09c0573036c
+  zh: 35f8718cfa15523e
 /deepseek-ai-dsh-prefill-context/use-this-package/configuration:
-  en: 6145ba4fdec7b8d7
-  zh: a54c3448e487c70d
+  en: 4bdd2551cca4e22b
+  zh: 2e1090a1bdf74205
 /deepseek-ai-dsh-prefill-context/use-this-package/enabling-the-row:
   en: f7d10d774ea01fcc
   zh: d60cbd5ffd1468b4
@@ -33,14 +36,17 @@
   en: 2d21fa2aad5a729d
   zh: c1493f8d4d807471
 /deepseek-ai-dsh-prefill-context/understand-the-implementation/design-concept:
-  en: e58d368c2b8b280a
-  zh: 2b5162d95aa9c840
+  en: 6d0226b5ed1cea0a
+  zh: ce5979362f741f34
+/deepseek-ai-dsh-prefill-context/understand-the-implementation/selection-call:
+  en: 09bd84a6cc92ed55
+  zh: e9a6877f1c383a99
 /deepseek-ai-dsh-prefill-context/understand-the-implementation/traversal-and-change-detection:
   en: 7c256ee6b5196eda
   zh: 4d2b7f2db821675c
 /deepseek-ai-dsh-prefill-context/understand-the-implementation/source-map:
-  en: 47027c04fa94aab5
-  zh: ebce5456f7d8eb4f
+  en: 24dca05d0dc99792
+  zh: 6309eae3fae86fc7
 /deepseek-ai-dsh-prefill-context/further-exploration:
   en: 64fb575f80609af5
   zh: a3a1c7b795f27698
@@ -51,17 +57,17 @@
   en: f6c0ab37363d4b9e
   zh: aa76c98ee0cbb93e
 /deepseek-ai-dsh-prefill-context/model-experience/workspace-snapshot-and-updates/what-the-model-sees:
-  en: d2e66b5420dddbe8
-  zh: d838d43740a4740b
+  en: 46e28dfe681fc2c6
+  zh: 4868a08fe0b99c22
 /deepseek-ai-dsh-prefill-context/model-experience/workspace-snapshot-and-updates/token-effect:
-  en: 13e802d0766b37aa
-  zh: b93b4b32e8d69a8e
+  en: 646a0fe868981dca
+  zh: a1fb784481659dff
 /deepseek-ai-dsh-prefill-context/model-experience/workspace-snapshot-and-updates/kv-cache-effect:
-  en: 5cbb0fdd9d00d6b3
-  zh: 5409736733c7ee58
+  en: d593a96536d3c2e2
+  zh: f31851b7e944c319
 /deepseek-ai-dsh-prefill-context/known-limitations-and-deferred-work:
-  en: 23585ad46580d9e3
-  zh: cf29ef35ab0e772e
+  en: 3a3ff3a67a597d1c
+  zh: 62b064a921bbdd33
 /deepseek-ai-dsh-prefill-context/known-limitations-and-deferred-work/dev-note:
   en: 60c841193d5d6047
   zh: b8924f7b2899bd8d

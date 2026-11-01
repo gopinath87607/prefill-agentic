@@ -6,18 +6,101 @@
  */
 
 import { z as zod } from 'zod'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type {
+  ContentBlock, Message, ReasoningEffortId, TokenUsage,
+} from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
-import type { PrefillLedgerView, PrefillSavingsView } from './types.ts'
+import type { PrefillSelectionMode } from './config.ts'
+import type {
+  PrefillLedgerView, PrefillSavingsView, PrefillSelectionFallback, PrefillSelectionView,
+} from './types.ts'
 
 /** Cordis plugin name and durable source kind. */
 export const name = 'prefill-context'
+
+/** Reason code for a selection call that exceeded its deadline. */
+export const PREFILL_SELECTION_TIMEOUT_CODE = 'PREFILL_SELECTION_TIMEOUT'
 
 /** Projection key holding cumulative prefill savings. */
 export const PREFILL_PROJECTION_KEY = 'prefillContext'
 
 /** Projection key holding the visible file snapshot and its scan identity. */
 export const PREFILL_LEDGER_PROJECTION_KEY = 'prefillLedger'
+
+/** Which baseline ordering actually produced the visible snapshot. */
+export type PrefillSelectionOutcome = PrefillSelectionMode
+
+/** One path the selection call chose, with its short reason. */
+export interface PrefillSelectionFile {
+  /** Workspace-relative path that appeared in the candidate manifest. */
+  readonly path: string
+  /** Short model-written reason the path matters to the request. */
+  readonly reason: string
+}
+
+/** Exact model-visible request recorded before one selection dispatch. */
+export interface PrefillSelectionRequestEventData {
+  /** Turn whose pre-step requested the baseline. */
+  readonly turn: number
+  /** Exact auxiliary LLM route. */
+  readonly route: { readonly provider: string; readonly model: string }
+  /** Exact auxiliary system prompt. */
+  readonly system: string
+  /** Exact auxiliary message list. */
+  readonly messages: Message[]
+  /** Exact auxiliary output-token cap. */
+  readonly maxTokens: number
+  /** Resolved reasoning effort when the call used one. */
+  readonly reasoningEffort?: ReasoningEffortId
+  /** Number of eligible candidate files in the scan. */
+  readonly candidates: number
+  /** Number of candidate paths shown to the model. */
+  readonly shown: number
+}
+
+/** Result of one baseline selection, recorded after the call settles. */
+export interface PrefillSelectionEventData {
+  /** Turn whose pre-step requested the baseline. */
+  readonly turn: number
+  /** Baseline ordering that actually ran. */
+  readonly selection: PrefillSelectionOutcome
+  /** Reason the configured model selection was not used. */
+  readonly fallback?: PrefillSelectionFallback
+  /** Short diagnostic detail for a fallback. */
+  readonly detail?: string
+  /** Provider route the selection call used. */
+  readonly provider?: string
+  /** Exact model id the selection call used. */
+  readonly model?: string
+  /** Paths the model chose, in its priority order. */
+  readonly files: readonly PrefillSelectionFile[]
+  /** Valid-looking entries dropped as duplicates, unknown paths, or over the cap. */
+  readonly dropped?: number
+  /** End-to-end duration of the selection call. */
+  readonly durationMs?: number
+  /** Provider-reported usage of the selection call. */
+  readonly usage?: TokenUsage
+  /** Complete model output, retained so replay can reconstruct the call. */
+  readonly rawOutput?: ContentBlock[]
+  /** Marks one dispatched auxiliary stream call, including a failed parse. */
+  readonly llmStreamCall?: true
+}
+
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    /** Log-only pre-dispatch record of one prefill selection request. */
+    'prefill/selection-request': PrefillSelectionRequestEventData
+    /** Log-only result of one baseline selection call. */
+    'prefill/selection': PrefillSelectionEventData
+  }
+}
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    /** One auxiliary prefill selection input; it never enters the conversation surface. */
+    'prefill-selection': { kind: 'prefill-selection' }
+  }
+}
 
 /** One file tracked by the current snapshot. */
 export interface PrefillFileEntry {
@@ -29,6 +112,8 @@ export interface PrefillFileEntry {
   readonly digest: string
   /** UTF-8 byte length of the tracked content. */
   readonly bytes: number
+  /** Model-written reason the path was selected, when the baseline was model-selected. */
+  readonly reason?: string | undefined
 }
 
 /** One ledger transition committed with a prefill message. */
@@ -68,6 +153,34 @@ export interface PrefillAccounting {
    * which bounds what the next reported cache read can attribute to prefill.
    */
   readonly prefixTokens: number
+  /** Prompt and output tokens every dispatched selection call introduced. */
+  readonly selectorTokens: number
+  /** Number of dispatched selection calls whose usage is included in {@link selectorTokens}. */
+  readonly selectorCalls: number
+}
+
+/** Latest baseline selection, summarized for the ledger projection and dashboard. */
+export interface PrefillSelectionState {
+  /** Turn whose pre-step ran the selection. */
+  readonly turn: number
+  /** Baseline ordering that actually ran. */
+  readonly selection: PrefillSelectionOutcome
+  /** Fallback reason when the configured model selection was not used. */
+  readonly fallback: PrefillSelectionFallback | null
+  /** Short diagnostic detail for a fallback. */
+  readonly detail: string | null
+  /** Provider route the selection call used, or null without a call. */
+  readonly provider: string | null
+  /** Exact model id the selection call used, or null without a call. */
+  readonly model: string | null
+  /** Paths the model chose, in its priority order; empty for deterministic ordering. */
+  readonly files: readonly PrefillSelectionFile[]
+  /** Valid-looking entries dropped as duplicates, unknown paths, or over the cap. */
+  readonly dropped: number
+  /** End-to-end duration of the selection call, or null without a call. */
+  readonly durationMs: number | null
+  /** Reported prompt and output tokens of the selection call. */
+  readonly tokens: number
 }
 
 /** Projection state: the visible file snapshot the pre-step reconciles against. */
@@ -84,6 +197,8 @@ export interface PrefillLedgerState {
   readonly messageSeqs: readonly number[]
   /** Files currently represented in the visible snapshot and its updates. */
   readonly files: readonly PrefillFileEntry[]
+  /** Latest baseline selection that produced or accompanies the visible snapshot. */
+  readonly selection: PrefillSelectionState | null
 }
 
 /** Projection state: cumulative cache accounting that survives ledger resets. */
@@ -103,6 +218,35 @@ const entrySchema = zod.object({
   version: zod.string().nullable(),
   digest: zod.string().min(1),
   bytes: zod.number().int().nonnegative(),
+  reason: zod.string().min(1).optional(),
+})
+
+const selectionFileSchema = zod.object({
+  path: zod.string().min(1),
+  reason: zod.string().min(1),
+})
+
+const selectionFallbackSchema = zod.union([
+  zod.literal('no-candidates'),
+  zod.literal('no-request'),
+  zod.literal('llm-unavailable'),
+  zod.literal('no-route'),
+  zod.literal('timeout'),
+  zod.literal('stream-error'),
+  zod.literal('invalid-response'),
+])
+
+const selectionStateSchema = zod.object({
+  turn: zod.number().int().positive(),
+  selection: zod.union([zod.literal('model'), zod.literal('deterministic')]),
+  fallback: selectionFallbackSchema.nullable(),
+  detail: zod.string().nullable(),
+  provider: zod.string().nullable(),
+  model: zod.string().nullable(),
+  files: zod.array(selectionFileSchema),
+  dropped: zod.number().int().nonnegative(),
+  durationMs: zod.number().int().nonnegative().nullable(),
+  tokens: zod.number().int().nonnegative(),
 })
 
 const changeSchema = zod.discriminatedUnion('action', [
@@ -123,6 +267,8 @@ const accountingSchema = zod.object({
   injectedTokens: zod.number().int().nonnegative(),
   reusedTokens: zod.number().int().nonnegative(),
   prefixTokens: zod.number().int().nonnegative(),
+  selectorTokens: zod.number().int().nonnegative(),
+  selectorCalls: zod.number().int().nonnegative(),
 })
 
 /** Persisted-state validation for the visible file snapshot. */
@@ -133,6 +279,7 @@ export const prefillLedgerStateSchema: zod.ZodType<PrefillLedgerState> = zod.obj
   lastScanTurn: zod.number().int().positive().nullable(),
   messageSeqs: zod.array(zod.number().int().nonnegative()),
   files: zod.array(entrySchema),
+  selection: selectionStateSchema.nullable(),
 })
 
 /** Persisted-state validation for the cumulative cache accounting. */
@@ -148,9 +295,27 @@ export const prefillSavingsSchema: zod.ZodType<PrefillSavingsView> = zod.object(
   visibleTokens: zod.number().int().nonnegative(),
   injectedTokens: zod.number().int().nonnegative(),
   reusedTokens: zod.number().int().nonnegative(),
+  selectorTokens: zod.number().int().nonnegative(),
+  selectorCalls: zod.number().int().nonnegative(),
   savedTokens: zod.number().int().nonnegative(),
   savedMs: zod.number().int().nonnegative(),
   tokensPerSecond: zod.number().positive(),
+}).strict()
+
+const selectionViewSchema: zod.ZodType<PrefillSelectionView> = zod.object({
+  turn: zod.number().int().positive(),
+  selection: zod.union([zod.literal('model'), zod.literal('deterministic')]),
+  fallback: selectionFallbackSchema.nullable(),
+  detail: zod.string().nullable(),
+  provider: zod.string().nullable(),
+  model: zod.string().nullable(),
+  files: zod.array(zod.object({
+    path: zod.string().min(1),
+    reason: zod.string().min(1),
+  }).strict()),
+  dropped: zod.number().int().nonnegative(),
+  durationMs: zod.number().int().nonnegative().nullable(),
+  tokens: zod.number().int().nonnegative(),
 }).strict()
 
 /** File-snapshot schema served to clients; only the renderable fields cross the wire. */
@@ -160,7 +325,9 @@ export const prefillLedgerViewSchema: zod.ZodType<PrefillLedgerView> = zod.objec
   files: zod.array(zod.object({
     path: zod.string().min(1),
     bytes: zod.number().int().nonnegative(),
+    reason: zod.string().nullable(),
   }).strict()),
+  selection: selectionViewSchema.nullable(),
 }).strict()
 
 const EMPTY_ACCOUNTING: PrefillAccounting = {
@@ -168,6 +335,8 @@ const EMPTY_ACCOUNTING: PrefillAccounting = {
   injectedTokens: 0,
   reusedTokens: 0,
   prefixTokens: 0,
+  selectorTokens: 0,
+  selectorCalls: 0,
 }
 
 /**
@@ -192,6 +361,7 @@ export function initPrefillLedgerState(): PrefillLedgerState {
     lastScanTurn: null,
     messageSeqs: [],
     files: [],
+    selection: null,
   }
 }
 
@@ -256,6 +426,10 @@ function applyAssistantUsage(
  * @returns the next state, or the same reference when the event is unrelated.
  */
 export function applyPrefillLedgerEvent(state: PrefillLedgerState, event: SessionEvent): PrefillLedgerState {
+  if (event.type === 'prefill/selection') {
+    const selection = selectionStateOf(event.data)
+    return { ...state, selection }
+  }
   if (event.type !== 'user/message') return state
   if (event.data.source.kind === name) {
     const source = parsePrefillSource(event.data.source)
@@ -268,6 +442,7 @@ export function applyPrefillLedgerEvent(state: PrefillLedgerState, event: Sessio
         lastScanTurn: source.scannedTurn,
         messageSeqs: [event.seq],
         files: sortEntries(source.changes.flatMap(change => change.action === 'set' ? [change.entry] : [])),
+        selection: state.selection?.turn === source.scannedTurn ? state.selection : null,
       }
     }
     if (state.root !== source.root || state.baselineAt === null) return initPrefillLedgerState()
@@ -303,6 +478,7 @@ export function applyPrefillAccountingEvent(
   charsPerToken: number,
 ): PrefillAccountingState {
   if (event.type === 'assistant/message') return applyAssistantUsage(state, event)
+  if (event.type === 'prefill/selection') return applySelectionUsage(state, event.data)
   if (event.type !== 'user/message') return state
   if (event.data.source.kind === name) {
     const source = parsePrefillSource(event.data.source)
@@ -318,6 +494,8 @@ export function applyPrefillAccountingEvent(
           injectedTokens: state.accounting.injectedTokens + tokens,
           reusedTokens: state.accounting.reusedTokens,
           prefixTokens: 0,
+          selectorTokens: state.accounting.selectorTokens,
+          selectorCalls: state.accounting.selectorCalls,
         },
       }
     }
@@ -341,6 +519,54 @@ export function applyPrefillAccountingEvent(
 }
 
 /**
+ * Fold one selection call's reported usage into cumulative accounting.
+ *
+ * A dispatched call counts even when the provider omitted usage; its tokens
+ * stay zero, and the call count still shows that selection ran.
+ * @param state - state covering every earlier event.
+ * @param data - durable selection result.
+ * @returns the next state, or the same reference when no call was dispatched.
+ */
+function applySelectionUsage(
+  state: PrefillAccountingState,
+  data: PrefillSelectionEventData,
+): PrefillAccountingState {
+  const dispatched = data.llmStreamCall === true
+  const tokens = usageTokens(data.usage)
+  if (!dispatched && tokens === 0) return state
+  return {
+    ...state,
+    accounting: {
+      ...state.accounting,
+      selectorTokens: state.accounting.selectorTokens + tokens,
+      selectorCalls: state.accounting.selectorCalls + (dispatched ? 1 : 0),
+    },
+  }
+}
+
+/** Prompt and output tokens of one usage report. */
+function usageTokens(usage: TokenUsage | undefined): number {
+  if (usage === undefined) return 0
+  return usage.totalTokens ?? usage.inputTokens + usage.outputTokens
+}
+
+/** Summarize one durable selection result for the ledger projection. */
+function selectionStateOf(data: PrefillSelectionEventData): PrefillSelectionState {
+  return {
+    turn: data.turn,
+    selection: data.selection,
+    fallback: data.fallback ?? null,
+    detail: data.detail ?? null,
+    provider: data.provider ?? null,
+    model: data.model ?? null,
+    files: data.files.map(file => ({ path: file.path, reason: file.reason })),
+    dropped: data.dropped ?? 0,
+    durationMs: data.durationMs ?? null,
+    tokens: usageTokens(data.usage),
+  }
+}
+
+/**
  * Whether two accounting snapshots hold the same client-visible counts.
  * @param left - one accounting snapshot.
  * @param right - another accounting snapshot.
@@ -350,6 +576,8 @@ export function sameAccounting(left: PrefillAccounting, right: PrefillAccounting
   return left.visibleTokens === right.visibleTokens
     && left.injectedTokens === right.injectedTokens
     && left.reusedTokens === right.reusedTokens
+    && left.selectorTokens === right.selectorTokens
+    && left.selectorCalls === right.selectorCalls
 }
 
 /**
@@ -359,11 +587,13 @@ export function sameAccounting(left: PrefillAccounting, right: PrefillAccounting
  * @returns current prefill size, net saved tokens, and their estimated processing time.
  */
 export function prefillSavingsView(accounting: PrefillAccounting, tokensPerSecond: number): PrefillSavingsView {
-  const savedTokens = Math.max(0, accounting.reusedTokens - accounting.injectedTokens)
+  const savedTokens = Math.max(0, accounting.reusedTokens - accounting.injectedTokens - accounting.selectorTokens)
   return {
     visibleTokens: accounting.visibleTokens,
     injectedTokens: accounting.injectedTokens,
     reusedTokens: accounting.reusedTokens,
+    selectorTokens: accounting.selectorTokens,
+    selectorCalls: accounting.selectorCalls,
     savedTokens,
     savedMs: Math.round(savedTokens * 1_000 / tokensPerSecond),
     tokensPerSecond,
@@ -373,13 +603,33 @@ export function prefillSavingsView(accounting: PrefillAccounting, tokensPerSecon
 /**
  * Client view of the visible file snapshot.
  * @param state - folded ledger state.
- * @returns the renderable root, scan turn, and file sizes.
+ * @returns the renderable root, scan turn, file sizes, and latest selection.
  */
 export function prefillLedgerView(state: PrefillLedgerState): PrefillLedgerView {
   return {
     root: state.root,
     lastScanTurn: state.lastScanTurn,
-    files: state.files.map(entry => ({ path: entry.path, bytes: entry.bytes })),
+    files: state.files.map(entry => ({
+      path: entry.path,
+      bytes: entry.bytes,
+      reason: entry.reason ?? null,
+    })),
+    selection: state.selection === null ? null : selectionView(state.selection),
+  }
+}
+
+function selectionView(selection: PrefillSelectionState): PrefillSelectionView {
+  return {
+    turn: selection.turn,
+    selection: selection.selection,
+    fallback: selection.fallback,
+    detail: selection.detail,
+    provider: selection.provider,
+    model: selection.model,
+    files: selection.files.map(file => ({ path: file.path, reason: file.reason })),
+    dropped: selection.dropped,
+    durationMs: selection.durationMs,
+    tokens: selection.tokens,
   }
 }
 

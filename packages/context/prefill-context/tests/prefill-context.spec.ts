@@ -8,8 +8,6 @@ import AgentRegistry, { agentEvents, type Agent, type PreStepDecision } from '@d
 import {
   mountAgentLoopTestDependencies,
   provideWorkingDirectoryFixture,
-  unsupportedInbox,
-  unsupportedModel,
 } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -20,6 +18,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as prefillContext from '@deepseek-ai/dsh-prefill-context'
 import type { Config } from '@deepseek-ai/dsh-prefill-context'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { sessionAgent } from './session-agent.ts'
 
 const SIGNAL = new AbortController().signal
 
@@ -62,25 +61,6 @@ function session(cwd: string, id = 'session', meta: { origin?: 'subagent' } = {}
     cwd,
     ...meta,
   })
-}
-
-function sessionAgent(subject: Session, id = 'agent'): Agent {
-  return {
-    id: SessionId(id),
-    options: {},
-    session: subject,
-    model: unsupportedModel(),
-    inbox: unsupportedInbox(),
-    status: 'running',
-    ctx: new Context(),
-    send: () => {},
-    followup: () => {},
-    steer: () => {},
-    inject: () => { throw new Error('prefill-context must append directly to the open step') },
-    cancel() {},
-    runMaintenance: task => task(new AbortController().signal),
-    whenIdle: () => Promise.resolve(),
-  }
 }
 
 function openTurn(subject: Session, turn: number): void {
@@ -593,6 +573,8 @@ describe('workspace snapshots', () => {
       visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: 0,
+      selectorTokens: 0,
+      selectorCalls: 0,
       savedTokens: 0,
       savedMs: 0,
       tokensPerSecond: 500,
@@ -600,7 +582,19 @@ describe('workspace snapshots', () => {
     expect(values().prefillLedger).toEqual({
       root: cwd,
       lastScanTurn: 1,
-      files: [{ path: 'a.ts', bytes: 'export const a = 1\n'.length }],
+      files: [{ path: 'a.ts', bytes: 'export const a = 1\n'.length, reason: null }],
+      selection: {
+        turn: 1,
+        selection: 'deterministic',
+        fallback: 'llm-unavailable',
+        detail: null,
+        provider: null,
+        model: null,
+        files: [],
+        dropped: 0,
+        durationMs: null,
+        tokens: 0,
+      },
     })
 
     // The baseline request carried no cached prefill prefix, so its own
@@ -610,6 +604,8 @@ describe('workspace snapshots', () => {
       visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: 0,
+      selectorTokens: 0,
+      selectorCalls: 0,
       savedTokens: 0,
       savedMs: 0,
       tokensPerSecond: 500,
@@ -620,6 +616,8 @@ describe('workspace snapshots', () => {
       visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: injected,
+      selectorTokens: 0,
+      selectorCalls: 0,
       savedTokens: 0,
       savedMs: 0,
       tokensPerSecond: 500,
@@ -630,6 +628,8 @@ describe('workspace snapshots', () => {
       visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: injected * 2,
+      selectorTokens: 0,
+      selectorCalls: 0,
       savedTokens: injected,
       savedMs: injected * 2,
       tokensPerSecond: 500,
@@ -640,6 +640,8 @@ describe('workspace snapshots', () => {
       visibleTokens: injected,
       injectedTokens: injected,
       reusedTokens: injected * 2,
+      selectorTokens: 0,
+      selectorCalls: 0,
       savedTokens: injected,
       savedMs: injected * 2,
       tokensPerSecond: 500,
@@ -681,7 +683,7 @@ describe('real agent-loop request history', () => {
     await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
     const adapter = new MockAdapter([textResponse('first answer'), textResponse('second answer')])
     ctx.llm.registerAdapter(['mock'], adapter)
-    await ctx.plugin(prefillContext, { budgetTokens: 4096 })
+    await ctx.plugin(prefillContext, { budgetTokens: 4096, selection: 'deterministic' })
     await ctx.plugin(AgentLoop, { agents: [] })
     const agent = await ctx.agentLoop.create(
       SessionId('prefill-loop'),
@@ -720,7 +722,7 @@ describe('real agent-loop request history', () => {
     await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
     const adapter = new MockAdapter([textResponse('answer')])
     ctx.llm.registerAdapter(['mock'], adapter)
-    await ctx.plugin(prefillContext, { budgetTokens: 4096, guidance: false })
+    await ctx.plugin(prefillContext, { budgetTokens: 4096, guidance: false, selection: 'deterministic' })
     await ctx.plugin(AgentLoop, { agents: [] })
     const agent = await ctx.agentLoop.create(
       SessionId('prefill-loop-no-guidance'),
@@ -734,6 +736,103 @@ describe('real agent-loop request history', () => {
     const first = requestText(adapter.requests[0]!)
     expect(first).not.toContain('Workspace prefill:')
     expect(first).toContain('<prefill-context kind="baseline"')
+    await ctx.fiber.dispose()
+    ctx = undefined
+  })
+})
+
+describe('model-driven selection', () => {
+  async function mountLoop(adapter: MockAdapter): Promise<void> {
+    ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    await ctx.plugin(prefillContext, { budgetTokens: 4096 })
+    await ctx.plugin(AgentLoop, { agents: [] })
+  }
+
+  it('lets the routed model choose which files the baseline contains', async () => {
+    const cwd = await workspace({
+      'a.ts': 'export const a = 1\n',
+      'b.ts': 'export const b = 2\n',
+      'nested/c.ts': 'export const c = 3\n',
+    })
+    const chosen = JSON.stringify({
+      files: [
+        { path: 'b.ts', reason: 'entry point' },
+        { path: 'nested/c.ts', reason: 'shared helper' },
+      ],
+    })
+    const adapter = new MockAdapter([textResponse(chosen), textResponse('answer')])
+    await mountLoop(adapter)
+    const agent = await ctx!.agentLoop.create(
+      SessionId('prefill-selection-loop'),
+      { provider: 'mock', model: 'mock' },
+      { cwd },
+    )
+
+    agent.followup(createUserMessage({
+      content: [{ type: 'text', text: 'explain the entry point' }],
+      source: { kind: 'user' },
+    }))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(2)
+    expect(adapter.requests[0]).toMatchObject({
+      provider: 'mock',
+      model: 'mock',
+      purpose: 'prefill-selection',
+    })
+    expect(requestText(adapter.requests[0]!)).toContain('explain the entry point')
+    const conversation = requestText(adapter.requests[1]!)
+    expect(conversation).not.toContain('a.ts')
+    expect(conversation.indexOf('--- FILE: b.ts ---'))
+      .toBeLessThan(conversation.indexOf('--- FILE: nested/c.ts ---'))
+
+    const values = ctx!.sessionProjections.snapshot(agent.session).values
+    expect(values.prefillLedger).toMatchObject({
+      root: cwd,
+      lastScanTurn: 1,
+      files: [
+        { path: 'b.ts', bytes: 'export const b = 2\n'.length, reason: 'entry point' },
+        { path: 'nested/c.ts', bytes: 'export const c = 3\n'.length, reason: 'shared helper' },
+      ],
+      selection: {
+        turn: 1,
+        selection: 'model',
+        fallback: null,
+        detail: null,
+        provider: 'mock',
+        model: 'mock',
+        files: [
+          { path: 'b.ts', reason: 'entry point' },
+          { path: 'nested/c.ts', reason: 'shared helper' },
+        ],
+        dropped: 0,
+        tokens: 10 + chosen.length,
+      },
+    })
+    expect(values.prefillContext).toMatchObject({
+      selectorCalls: 1,
+      selectorTokens: 10 + chosen.length,
+    })
+    await ctx?.fiber.dispose()
+    ctx = undefined
+  })
+
+  it('asks the selection model about the latest logged request when a step claims none', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    const adapter = new MockAdapter([textResponse('{"files":[]}')])
+    ctx = new Context()
+    await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
+    ctx.llm.registerAdapter(['mock'], adapter)
+    await ctx.plugin(prefillContext, { budgetTokens: 4096 })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+
+    await decide(ctx, sessionAgent(subject), 1, 1, SIGNAL, [])
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(requestText(adapter.requests[0]!)).toContain('turn 1')
     await ctx.fiber.dispose()
     ctx = undefined
   })

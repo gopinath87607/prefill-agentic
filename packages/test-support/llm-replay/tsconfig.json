@@ -18,6 +18,9 @@
       "path": "../../compaction/compaction"
     },
     {
+      "path": "../../context/prefill-context"
+    },
+    {
       "path": "../../llm/llm"
     },
     {

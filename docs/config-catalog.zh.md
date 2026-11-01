@@ -2237,7 +2237,7 @@ export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['
 
 - `inject`: `llm`
 - `refs`: [`LlmModelBadge`](../packages/llm/llm/src/index.ts) · [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts) · [`ToolUpdate`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/test-support/llm-replay/src/index.ts:1135`](../packages/test-support/llm-replay/src/index.ts)
+- `source`: [`packages/test-support/llm-replay/src/index.ts:1148`](../packages/test-support/llm-replay/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the {@link ReplayConfig} inputs, each defaulting to its `DSH_SNAPSHOT_*` env var in `apply`. */
@@ -2717,7 +2717,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-prefill-context`
 
 - `inject`: `agents` · `workingDirectory` · `sessionProjections`
-- `source`: [`packages/context/prefill-context/src/config.ts:230`](../packages/context/prefill-context/src/config.ts)
+- `source`: [`packages/context/prefill-context/src/config.ts:239`](../packages/context/prefill-context/src/config.ts)
 
 ```ts config-catalog
 /** Row configuration for workspace prefill snapshots. */
@@ -2746,6 +2746,20 @@ export interface Config {
   position?: PrefillPosition
   /** Sessions that receive snapshots: only top-level agents, or every agent including subagents. */
   agents?: PrefillAgentScope
+  /** Let the routed model choose which candidate paths enter the baseline. */
+  selection?: PrefillSelectionMode
+  /** Provider route for the selection call; must be paired with `selectorModel`. */
+  selectorProvider?: string
+  /** Model id for the selection call; must be paired with `selectorProvider`. */
+  selectorModel?: string
+  /** Total estimated input-token budget for the selection request and candidate manifest. */
+  selectorInputTokens?: number
+  /** Largest number of paths the selection call may choose. */
+  selectorMaxFiles?: number
+  /** Output-token cap for the selection call. */
+  selectorMaxOutputTokens?: number
+  /** End-to-end deadline for the selection call. */
+  selectorTimeoutMs?: number
   /** List paths whose contents were not included, subject to `indexBudgetTokens`. */
   includePathIndex?: boolean
   /** Token budget for the path index, which is appended in addition to the content budget. */
@@ -2784,6 +2798,14 @@ export type PrefillPosition = 'before' | 'after'
 
 /** Which sessions receive snapshots. */
 export type PrefillAgentScope = 'main' | 'all'
+
+/**
+ * How the baseline chooses which file contents to inject.
+ *
+ * `model` asks the routed model to pick relevant paths from the scanned
+ * candidates; `deterministic` keeps the shallow-first path order.
+ */
+export type PrefillSelectionMode = 'model' | 'deterministic'
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-prefill-context -->
 

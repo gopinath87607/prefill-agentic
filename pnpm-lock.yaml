@@ -7584,6 +7584,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-timeout':
+        specifier: workspace:*
+        version: link:../../util/timeout
       '@deepseek-ai/dsh-working-directory':
         specifier: workspace:*
         version: link:../../session/working-directory
@@ -17214,6 +17217,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-prefill-context':
+        specifier: workspace:*
+        version: link:../../context/prefill-context
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session
