@@ -17,17 +17,22 @@ import { toPiReplayState } from './replay.ts'
 
 /**
  * Map pi-ai usage (reasoning folded into output by pi-ai).
+ *
+ * pi-ai's `Usage` always counts cache reads and writes, using 0 for a request
+ * that read or wrote none. The buckets are therefore always reported: omitting
+ * a zero would turn a full cache miss into "this provider does not report
+ * cache usage", and downstream folds would drop the prompt from the cache-hit
+ * denominator instead of counting it as a miss.
  * @param usage - cumulative usage from the terminal pi-ai event.
- * @returns harness counts with pi-ai's exact total; cache fields appear only
- *   when non-zero (pi-ai reports zeros, not absence).
+ * @returns harness counts with pi-ai's exact total and both cache buckets.
  */
 export function mapUsage(usage: PiUsage): TokenUsage {
   return {
     inputTokens: usage.input,
     outputTokens: usage.output,
     totalTokens: usage.totalTokens,
-    ...usage.cacheRead > 0 ? { cacheReadTokens: usage.cacheRead } : {},
-    ...usage.cacheWrite > 0 ? { cacheWriteTokens: usage.cacheWrite } : {},
+    cacheReadTokens: usage.cacheRead,
+    cacheWriteTokens: usage.cacheWrite,
   }
 }
 

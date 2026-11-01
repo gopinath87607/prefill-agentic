@@ -36,3 +36,7 @@
     # with their tools.
     agents: main
     guidance: true
+    # Cached prefill tokens are converted to saved time at the measured cold
+    # prompt rate, not the ~430 tokens/s append rate: reuse avoids the cold
+    # processing of the prefix it serves.
+    promptTokensPerSecond: 1000

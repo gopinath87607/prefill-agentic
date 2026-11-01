@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-prefill-context` gives a long-context model the workspace contents before its first step. The first eligible turn injects a deterministic baseline of included text files; later turns append an update with only added, modified, and removed paths. The baseline is never rewritten, so the request prefix stays reusable. Scanning honors `.gitignore` and configurable exclusion patterns, a bounded path index names skipped files, and a static system-prompt section tells the model to reuse the snapshot. The base bundle keeps the row disabled so each deployment opts in with its own budget.
+`dsh-prefill-context` gives a long-context model the workspace contents before its first step. The first eligible turn injects a deterministic baseline of included text files; later turns append only added, modified, and removed paths. The baseline is never rewritten, so the request prefix stays reusable. Scanning honors `.gitignore` and configurable exclusions, a bounded path index names skipped files, and a static system-prompt section tells the model to reuse the snapshot. The `prefillContext` projection reports the cache-read tokens and estimated prompt-processing time saved. The base bundle keeps the row disabled so each deployment opts in with its own budget.
 
 ## Table of Contents
 
@@ -41,6 +41,12 @@ The path index is a separate bounded section. With `includePathIndex: true` (the
 
 A large budget reduces discovery calls but consumes the same model context as any other message. It also counts toward the compaction threshold: a baseline near the model window leaves little room for conversation before compaction replaces the shadowed history. Start from the task shape, not the model maximum, and measure cache reuse before raising it.
 
+### Measuring cache savings
+
+Every prefill message was processed uncached once and is then served from the provider cache on later requests. The `prefillContext` projection records that trade: `injectedTokens` estimates the tokens every prefill message introduced, `reusedTokens` sums the provider-reported cache reads attributed to the visible prefill content, and `savedTokens` is their difference. `savedMs` converts the net tokens at `promptTokensPerSecond`, the deployment engine's uncached prompt throughput. The composer's Usage dialog shows the result as a "Prefill saved" row with both the token count and the estimated time.
+
+The figure is a lower bound. Token counts come from the message text at `charsPerToken`; a prompt prefix is cached in order, so each request credits at most the prefill tokens visible at that request; and a settlement that reports no cache read credits nothing. Set `promptTokensPerSecond` from a measurement on the target engine. The default of 1,000 tokens per second assumes a fast accelerator, and a slower engine then understates the saved time.
+
 ### Configuration
 
 The minimal mount needs no configuration and uses a 150,000-token baseline budget.
@@ -69,6 +75,7 @@ The minimal mount needs no configuration and uses a 150,000-token baseline budge
 | `indexBudgetTokens` | `4000` | Token budget for the path index, in addition to `budgetTokens` |
 | `respectGitignore` | `true` | Apply each directory's `.gitignore` while scanning |
 | `guidance` | `true` | Register static prefill guidance in the agent's system prompt |
+| `promptTokensPerSecond` | `1000` | Uncached prompt throughput used to convert saved tokens into estimated time |
 | `includeExtensions` | text and code list | Lowercase extensions treated as text; a leading dot is added when omitted |
 | `includeFileNames` | build and project files | Exact filenames included regardless of extension |
 | `excludedDirectories` | VCS, dependency, and build directories | Directory names never traversed, matched case-insensitively |
@@ -105,7 +112,7 @@ This section explains the design of the plugin; the observable behavior is cover
 
 The plugin prepends an `agent/pre-step` listener that delegates first, then appends one sourced `UserMessage` when a scan produces a baseline or a non-empty update. Each message uses the source `{ kind: 'prefill-context', scannedTurn, root, baseline?, changes }`, where `changes` records every ledger transition the message commits.
 
-The `prefillContext` host-only session projection folds those messages into the visible file ledger: paths, backend freshness versions, content digests, and byte sizes. An update applies its transitions; a surface replacement that shadows any committed prefill message clears the projection, so the next step prepares a fresh baseline after compaction. Replay and checkpoint restore derive the same ledger because the source records every transition.
+The `prefillContext` session projection folds those messages into the visible file ledger: paths, backend freshness versions, content digests, and byte sizes. It also accumulates the prefill token accounting and serves a client view of the net tokens and estimated time saved. An update applies its transitions; a surface replacement that shadows any committed prefill message clears the projection, so the next step prepares a fresh baseline after compaction. Cumulative savings survive that reset, because a replacement already invalidated prefix reuse and the next baseline is paid uncached again. Replay and checkpoint restore derive the same ledger because the source records every transition.
 
 On agent creation the plugin injects a `context:prefill` system-prompt section at the `FILE_REFERENCE` order into that agent's scope. The section is a fixed string, so it does not vary the prompt between requests. The `main` agent scope skips both the section and the snapshots for sessions whose header marks them as subagents.
 
@@ -124,7 +131,9 @@ The baseline reads files in shallow-first order and renders each as a delimited 
 | [`src/scan.ts`](src/scan.ts) | Deterministic traversal, gitignore layers, and exclusion patterns |
 | [`src/prepare.ts`](src/prepare.ts) | Budgeted file selection, reads, hashing, ledger transitions, and path-index inputs |
 | [`src/render.ts`](src/render.ts) | Frame, block, notice, path-index, and guidance rendering |
-| [`src/state.ts`](src/state.ts) | Durable source type, validation, and the ledger projection |
+| [`src/state.ts`](src/state.ts) | Durable source type, validation, ledger and savings fold, and projection schemas |
+| [`src/types.ts`](src/types.ts) | Browser-safe `prefillContext` view contract and projection-key declaration |
+| [`src/client.ts`](src/client.ts) | Client namespace re-exporting the projection contracts |
 
 </details>
 
@@ -173,6 +182,7 @@ Append-only after the first snapshot. The baseline and preceding updates stay at
 - **Baseline competes with conversation** — a baseline near the context window triggers compaction sooner; the fresh baseline prepared afterward consumes budget again.
 - **Backend-dependent freshness** — the digest fast path still reads content when the backend reports no freshness token, so a scan can reread every tracked file on each eligible turn.
 - **Long prefills outlast provider idle timeouts** — an engine can stay busy for minutes before it emits the first stream chunk for a large baseline. The pi-ai adapter's default 300,000 ms stream idle timeout then fails the attempt and retries the whole prompt; raise `streamIdleTimeoutMs` on the provider route to cover the measured prefill time.
+- **Savings are estimates** — injected tokens follow `charsPerToken`, reused tokens credit at most the prefill tokens visible at each settlement, and the saved time assumes `promptTokensPerSecond` matches the engine's uncached prompt throughput.
 - **Unreadable and binary files** — files whose contents cannot be read as text are reported in scan notes and omitted. Snapshot membership follows the configured name and extension rules, not content detection.
 
 <a id="dev-note"></a>
@@ -181,6 +191,6 @@ Append-only after the first snapshot. The baseline and preceding updates stay at
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-The shipped base row stays disabled so each deployment chooses a budget. A plugin patch must restate the complete `config` object because patches replace the property they name. The projection is host-only; no client UI reads it. Guidance is installed per agent through `agent.ctx.inject(['systemPrompt'], ...)` and disposed with the agent or the plugin.
+The shipped base row stays disabled so each deployment chooses a budget. A plugin patch must restate the complete `config` object because patches replace the property they name. The projection serves a client view declared in `src/types.ts` and re-exported by `src/client.ts`; the composer Usage dialog reads it. Guidance is installed per agent through `agent.ctx.inject(['systemPrompt'], ...)` and disposed with the agent or the plugin.
 
 </details>

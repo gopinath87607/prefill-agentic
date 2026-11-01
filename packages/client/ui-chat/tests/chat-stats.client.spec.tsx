@@ -304,6 +304,38 @@ describe('composer stats pills', () => {
     expect(dialog.textContent).not.toContain('LLM time')
   })
 
+  it('adds the prefill savings row with the estimated time saved', () => {
+    const { source } = makeSource({ nodes: [timedStep()] })
+    const prefillContext = {
+      injectedTokens: 1_000,
+      reusedTokens: 3_000,
+      savedTokens: 2_000,
+      savedMs: 2_000,
+      tokensPerSecond: 1_000,
+    }
+    const view = render(<StatsPills {...props(source, { tokenUsage: USAGE, prefillContext })} />)
+
+    fireEvent.click(view.getAllByRole('button')[1]!)
+    const tokens = view.getByRole('dialog').querySelector('[data-session-stats-usage]') as HTMLElement
+    expect(tokens.textContent).toContain('Prefill saved2,000 tok · 2s')
+  })
+
+  it('omits the prefill savings row when the prefill never repaid its injection', () => {
+    const { source } = makeSource({ nodes: [timedStep()] })
+    const prefillContext = {
+      injectedTokens: 3_000,
+      reusedTokens: 1_000,
+      savedTokens: 0,
+      savedMs: 0,
+      tokensPerSecond: 1_000,
+    }
+    const view = render(<StatsPills {...props(source, { tokenUsage: USAGE, prefillContext })} />)
+
+    fireEvent.click(view.getAllByRole('button')[1]!)
+    const tokens = view.getByRole('dialog').querySelector('[data-session-stats-usage]') as HTMLElement
+    expect(tokens.textContent).not.toContain('Prefill saved')
+  })
+
   it('closes the dialog on Escape or an outside pointerdown', () => {
     const { source } = makeSource({ nodes: [timedStep()] })
     const view = render(<StatsPills {...props(source)} />)

@@ -13,7 +13,8 @@ import {
 } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createAssistantMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { TokenUsage } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as prefillContext from '@deepseek-ai/dsh-prefill-context'
@@ -140,6 +141,19 @@ function prefillText(event: SessionEvent<'user/message'>): string {
   return event.data.content
     .flatMap(block => block.type === 'text' ? [block.text] : [])
     .join('')
+}
+
+function settle(subject: Session, usage: TokenUsage): void {
+  subject.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: createAssistantMessage({
+      content: [{ type: 'text', text: 'ok' }],
+      source: { provider: 'mock', model: 'mock' },
+    }),
+    stream: [],
+    usage,
+  }, { surfaceOp: 'append' })
 }
 
 function requestText(request: { messages: readonly { content: readonly { type: string; text?: string }[] }[] }): string {
@@ -563,6 +577,52 @@ describe('workspace snapshots', () => {
     const messages = prefillMessages(subject).filter(message => message.seq > update.seq)
     expect(messages).toHaveLength(1)
     expect(messages[0]!.data.source).toMatchObject({ kind: 'prefill-context', baseline: true, scannedTurn: 3 })
+  })
+
+  it('serves cumulative prefill savings through the projection view', async () => {
+    const cwd = await workspace({ 'a.ts': 'export const a = 1\n' })
+    await mount(cwd, { charsPerToken: 1, promptTokensPerSecond: 500 })
+    const subject = session(cwd)
+    openTurn(subject, 1)
+    await fire(ctx!, sessionAgent(subject), 1)
+
+    const injected = prefillText(prefillMessages(subject)[0]!).length
+    expect(injected).toBeGreaterThan(0)
+    const savings = (): unknown => ctx!.sessionProjections.snapshot(subject).values.prefillContext
+    expect(savings()).toEqual({
+      injectedTokens: injected,
+      reusedTokens: 0,
+      savedTokens: 0,
+      savedMs: 0,
+      tokensPerSecond: 500,
+    })
+
+    settle(subject, { inputTokens: injected + 10, outputTokens: 1, cacheReadTokens: injected })
+    expect(savings()).toEqual({
+      injectedTokens: injected,
+      reusedTokens: injected,
+      savedTokens: 0,
+      savedMs: 0,
+      tokensPerSecond: 500,
+    })
+
+    settle(subject, { inputTokens: 3, outputTokens: 1, cacheReadTokens: injected })
+    expect(savings()).toEqual({
+      injectedTokens: injected,
+      reusedTokens: injected * 2,
+      savedTokens: injected,
+      savedMs: injected * 2,
+      tokensPerSecond: 500,
+    })
+    // An unrelated event keeps the accounting, and therefore the view, unchanged.
+    subject.append('turn/start', { turn: 2 })
+    expect(savings()).toEqual({
+      injectedTokens: injected,
+      reusedTokens: injected * 2,
+      savedTokens: injected,
+      savedMs: injected * 2,
+      tokensPerSecond: 500,
+    })
   })
 
   it('stops injecting after the plugin fiber disposes', async () => {

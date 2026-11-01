@@ -260,6 +260,12 @@ export interface Config {
   respectGitignore?: boolean
   /** Register stable guidance about reading prefill messages in the system prompt. */
   guidance?: boolean
+  /**
+   * Uncached prompt-processing throughput of the deployment engine, used to
+   * convert cached prefill tokens into an estimated time saved. Measure it on
+   * the target engine; the generic default assumes a fast accelerator.
+   */
+  promptTokensPerSecond?: number
   /** Lowercase extensions treated as text; a leading dot is added when omitted. */
   includeExtensions?: string[]
   /** Exact filenames included regardless of extension. */
@@ -294,6 +300,7 @@ export interface ResolvedPrefillConfig {
   indexBudgetTokens: number
   respectGitignore: boolean
   guidance: boolean
+  promptTokensPerSecond: number
   includeExtensions: readonly string[]
   includeFileNames: ReadonlySet<string>
   excludedDirectories: ReadonlySet<string>
@@ -319,6 +326,7 @@ export const Config: z<Config> = z.object({
   indexBudgetTokens: z.number().step(1).min(0).default(4_000),
   respectGitignore: z.boolean().default(true),
   guidance: z.boolean().default(true),
+  promptTokensPerSecond: z.number().min(0.001).default(1_000),
   includeExtensions: z.array(z.string()).default([...DEFAULT_INCLUDE_EXTENSIONS]),
   includeFileNames: z.array(z.string()).default([...DEFAULT_INCLUDE_FILE_NAMES]),
   excludedDirectories: z.array(z.string()).default([...DEFAULT_EXCLUDED_DIRECTORIES]),
@@ -350,6 +358,7 @@ export function resolveConfig(config: Config): ResolvedPrefillConfig {
     indexBudgetTokens: nonNegativeInteger(config.indexBudgetTokens ?? 4_000, 'indexBudgetTokens'),
     respectGitignore: config.respectGitignore ?? true,
     guidance: config.guidance ?? true,
+    promptTokensPerSecond: positiveNumber(config.promptTokensPerSecond ?? 1_000, 'promptTokensPerSecond'),
     includeExtensions: normalizeExtensions(config.includeExtensions ?? [...DEFAULT_INCLUDE_EXTENSIONS]),
     includeFileNames: new Set(normalizeNames(config.includeFileNames ?? [...DEFAULT_INCLUDE_FILE_NAMES], 'includeFileNames')),
     excludedDirectories: new Set(normalizeNames(

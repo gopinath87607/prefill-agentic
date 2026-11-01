@@ -21,13 +21,18 @@ import {
   applyPrefillEvent,
   initPrefillState,
   name,
+  prefillSavingsSchema,
+  prefillSavingsView,
   prefillStateSchema,
+  sameAccounting,
 } from './state.ts'
-import type { PrefillContextSource } from './state.ts'
+import type { PrefillAccounting, PrefillContextSource } from './state.ts'
+import type { PrefillSavingsView } from './types.ts'
 
 export { Config, name }
 export { PREFILL_GUIDANCE }
-export type { PrefillContextState, PrefillContextSource, PrefillFileEntry } from './state.ts'
+export type { PrefillAccounting, PrefillContextState, PrefillContextSource, PrefillFileEntry } from './state.ts'
+export type { PrefillSavingsView } from './types.ts'
 
 /** Services required to observe turns, resolve the workspace, and persist the ledger. */
 export const inject = ['agents', 'workingDirectory', 'sessionProjections']
@@ -47,12 +52,27 @@ export const inject = ['agents', 'workingDirectory', 'sessionProjections']
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const resolved = resolveConfig(config)
+  // The drive compares successive view references, so reuse the object while
+  // the counts behind it are unchanged. The closure is shared by every
+  // session's view call, so compare values rather than accounting identity.
+  let viewAccounting: PrefillAccounting | undefined
+  let viewValue: PrefillSavingsView | undefined
   const projection = await ctx.sessionProjections.register({
     key: PREFILL_PROJECTION_KEY,
-    stateVersion: 1,
+    stateVersion: 2,
     stateSchema: prefillStateSchema,
     init: initPrefillState,
-    apply: applyPrefillEvent,
+    apply: (state, event) => applyPrefillEvent(state, event, resolved.charsPerToken),
+    wire: {
+      viewSchema: prefillSavingsSchema,
+      view: (state) => {
+        if (viewValue === undefined || viewAccounting === undefined || !sameAccounting(viewAccounting, state.accounting)) {
+          viewAccounting = state.accounting
+          viewValue = prefillSavingsView(state.accounting, resolved.promptTokensPerSecond)
+        }
+        return viewValue
+      },
+    },
   })
 
   const promptFibers = new Map<Agent, ReturnType<Context['inject']>>()

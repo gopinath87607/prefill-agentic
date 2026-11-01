@@ -3943,6 +3943,9 @@ importers:
       '@deepseek-ai/dsh-llm-retry':
         specifier: workspace:*
         version: link:../../llm/llm-retry
+      '@deepseek-ai/dsh-prefill-context':
+        specifier: workspace:*
+        version: link:../../context/prefill-context
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../core/session

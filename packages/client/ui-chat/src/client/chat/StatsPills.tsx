@@ -11,6 +11,8 @@ import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/clie
 import type { InjectFace, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: merges the sessionStats key into SessionProjectionMap for useProjection.
 import type {} from '@deepseek-ai/dsh-session-stats/client'
+// Type-only: merges the prefillContext savings key into SessionProjectionMap.
+import type {} from '@deepseek-ai/dsh-prefill-context/client'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
 import type { ChatViewSlotProps, PerformanceUsageInjected } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
@@ -297,6 +299,7 @@ export const ActivityPill = memo(function ActivityPill({ useChat, useProjection,
 export const UsagePill = memo(function UsagePill({ useProjection, usePerformanceUsage, t }: StatPillProps) {
   const mode = usePerformanceUsage(value => value)
   const usage = useProjection('tokenUsage')
+  const prefill = useProjection('prefillContext')
   // Gated on actual token activity: a session whose steps all settled without
   // billing (e.g. every request failed) shows no usage pill.
   if (usage === undefined || (billedInputTokens(usage) === 0 && usage.outputTokens === 0)) return null
@@ -341,6 +344,15 @@ export const UsagePill = memo(function UsagePill({ useProjection, usePerformance
         )}
         <dt>{t('message.turnUsage.output')}</dt>
         <dd>{exactCount(usage.outputTokens, t)}</dd>
+        {prefill !== undefined && prefill.savedTokens > 0 && (
+          <>
+            <dt>{t('stats.prefill.saved')}</dt>
+            <dd>{t('stats.prefill.savedValue', {
+              tokens: exactCount(prefill.savedTokens, t),
+              duration: formatDuration(prefill.savedMs, t),
+            })}</dd>
+          </>
+        )}
       </dl>
       {/* jscpd:ignore-end */}
     </DialogPill>

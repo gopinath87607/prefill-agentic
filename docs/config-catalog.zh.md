@@ -2754,6 +2754,12 @@ export interface Config {
   respectGitignore?: boolean
   /** Register stable guidance about reading prefill messages in the system prompt. */
   guidance?: boolean
+  /**
+   * Uncached prompt-processing throughput of the deployment engine, used to
+   * convert cached prefill tokens into an estimated time saved. Measure it on
+   * the target engine; the generic default assumes a fast accelerator.
+   */
+  promptTokensPerSecond?: number
   /** Lowercase extensions treated as text; a leading dot is added when omitted. */
   includeExtensions?: string[]
   /** Exact filenames included regardless of extension. */

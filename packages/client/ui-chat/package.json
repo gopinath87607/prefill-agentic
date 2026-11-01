@@ -85,6 +85,7 @@
     "@deepseek-ai/dsh-compaction": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-llm-retry": "workspace:*",
+    "@deepseek-ai/dsh-prefill-context": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-stats": "workspace:*",
     "@deepseek-ai/dsh-session-turn-outline": "workspace:*",
