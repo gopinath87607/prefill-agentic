@@ -292,6 +292,22 @@ describe('model selection', () => {
     expect(selection[0]!.data.durationMs).toBeGreaterThanOrEqual(0)
   })
 
+  it('runs the selection call at the least supported reasoning effort', async () => {
+    const subject = session()
+    const adapter = new MockAdapter([textResponse('{"files":[]}')], {
+      efforts: [
+        { id: ReasoningEffortId('low'), name: 'Low' },
+        { id: ReasoningEffortId('high'), name: 'High' },
+      ],
+      defaultEffort: ReasoningEffortId('high'),
+    })
+    const { result } = await run(subject, adapter, configured(), input('request', [candidate('a.ts', 1)]))
+
+    expect(result.selection).toBe('model')
+    expect(adapter.requests[0]).toMatchObject({ reasoningEffort: 'low' })
+    expect(requestEvents(subject)[0]!.data.reasoningEffort).toBe('low')
+  })
+
   it('uses a configured selector route when the step route is absent', async () => {
     const subject = session()
     const adapter = new MockAdapter([textResponse('{"files":[]}')])

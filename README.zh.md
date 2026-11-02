@@ -125,6 +125,7 @@ Web UI 在右侧边栏提供 Prefill 仪表盘页面；打开指南页并选择 
     position: before
     agents: main
     guidance: true
+    selectorTimeoutMs: 300000
     promptTokensPerSecond: 1000
 ```
 
@@ -138,13 +139,13 @@ Web UI 在右侧边栏提供 Prefill 仪表盘页面；打开指南页并选择 
 | `selection` | model | model | `model` 由模型选择路径；`deterministic` 保持最浅优先顺序。 |
 | `selectorInputTokens` | — | 16000 | 请求文本与候选清单的预算。 |
 | `selectorMaxFiles` | — | 64 | 单个答案最多可选择的路径数。 |
-| `selectorTimeoutMs` | — | 30000 | 选择调用的端到端截止时间。 |
+| `selectorTimeoutMs` | 300000 | 30000 | 选择调用的端到端截止时间。 |
 | `respectGitignore` | true | true | 扫描时应用每个目录的 `.gitignore`。 |
 | `position` | before | after | 让最新的用户消息保持在请求最后。 |
 | `agents` | main | all | 避免把大基线放进子代理会话。 |
 | `guidance` | true | true | 注册系统提示段落，要求模型复用快照。 |
 
-`promptTokensPerSecond` 把缓存的预填充 token 换算为节省时间，应描述部署引擎；覆盖配置使用本地 Maya 服务器实测的约 1,000 token/s。`selectorProvider` 与 `selectorModel` 必须成对设置，默认使用该步骤自身的路由。包的 README 记录了其余上限、包含规则、排除项和刷新模式。
+`promptTokensPerSecond` 把缓存的预填充 token 换算为节省时间，应描述部署引擎；覆盖配置使用本地 Maya 服务器实测的约 1,000 token/s。选择器是同一引擎上的一次生成，因此覆盖配置把它的截止时间延长到五分钟；插件向路由请求其支持的最低推理级别，使该调用不会继承推理负担较重的默认值。`selectorProvider` 与 `selectorModel` 必须成对设置，默认使用该步骤自身的路由。包的 README 记录了其余上限、包含规则、排除项和刷新模式。
 
 让基线保持在压缩触发点以下。在 1M token 的引擎上，400,000 token 为逐字尾部和对话留出空间；接近模型窗口的快照会被压缩替换，缓存复用也随之结束。按实测的 Maya 分词器每 token 3.4 个字符计算，400k token 的冷基线在每个未变化前缀上只需约七分钟。
 
@@ -163,7 +164,7 @@ export DSH_PROVIDER=maya
 export DSH_MODEL="$MAYA_MODEL"
 ```
 
-两个提供方默认使用 OpenAI Chat Completions 协议。其他协议可把 `MAYA_API` 或 `SATARATA_API` 设为 `openai-responses` 或 `anthropic-messages`。大量冷预填充可能让引擎在首个流式块之前忙碌数分钟，因此两条路由默认 20 分钟空闲超时；用 `MAYA_STREAM_IDLE_MS` 或 `SATARATA_STREAM_IDLE_MS` 覆盖。凭据只存在于启动环境中：不会提交任何密钥或部署 URL。
+两个提供方默认使用 OpenAI Chat Completions 协议。其他协议可把 `MAYA_API` 或 `SATARATA_API` 设为 `openai-responses` 或 `anthropic-messages`。大量冷预填充可能让引擎在首个流式块之前忙碌数分钟，因此两条路由默认 20 分钟空闲超时；用 `MAYA_STREAM_IDLE_MS` 或 `SATARATA_STREAM_IDLE_MS` 覆盖。`MAYA_REASONING` 与 `SATARATA_REASONING` 设置路由的默认思考级别（默认 `high`）；未指定级别的调用沿用该默认值，而预填充选择器请求路由支持的最低级别（这里是 `off`）。凭据只存在于启动环境中：不会提交任何密钥或部署 URL。
 
 ## 自动续轮
 

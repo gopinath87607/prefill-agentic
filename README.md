@@ -125,6 +125,7 @@ Enable the plugin in `prefill.patch.yml`; the launcher reads it at startup:
     position: before
     agents: main
     guidance: true
+    selectorTimeoutMs: 300000
     promptTokensPerSecond: 1000
 ```
 
@@ -138,13 +139,13 @@ Enable the plugin in `prefill.patch.yml`; the launcher reads it at startup:
 | `selection` | model | model | `model` chooses paths; `deterministic` keeps shallow-first order. |
 | `selectorInputTokens` | — | 16000 | Request text plus candidate manifest budget. |
 | `selectorMaxFiles` | — | 64 | Maximum paths one answer may choose. |
-| `selectorTimeoutMs` | — | 30000 | End-to-end deadline for the selection call. |
+| `selectorTimeoutMs` | 300000 | 30000 | End-to-end deadline for the selection call. |
 | `respectGitignore` | true | true | Applies each directory's `.gitignore` while scanning. |
 | `position` | before | after | Keeps the newest user message last in the request. |
 | `agents` | main | all | Keeps the large baseline out of subagent sessions. |
 | `guidance` | true | true | Registers the system-prompt paragraph that tells the model to reuse the snapshot. |
 
-`promptTokensPerSecond` converts cached prefill tokens into saved time and should describe the deployment engine; the overlay uses the measured ~1,000 tokens per second of the local Maya server. `selectorProvider` and `selectorModel` must be set together and default to the step's own route. The package README documents every remaining cap, include rule, exclusion, and refresh mode.
+`promptTokensPerSecond` converts cached prefill tokens into saved time and should describe the deployment engine; the overlay uses the measured ~1,000 tokens per second of the local Maya server. The selector is a generation on that same engine, so the overlay extends its deadline to five minutes; the plugin asks the route for its least supported reasoning effort so the call does not inherit a reasoning-heavy default. `selectorProvider` and `selectorModel` must be set together and default to the step's own route. The package README documents every remaining cap, include rule, exclusion, and refresh mode.
 
 Keep the baseline below the compaction trigger. On a 1M-token engine, 400,000 tokens leaves room for the verbatim tail and the conversation; a snapshot close to the model window is replaced by compaction, which ends the cache reuse. With the measured Maya tokenizer at 3.4 characters per token, the cold 400k-token baseline costs roughly seven minutes once per unchanged prefix.
 
@@ -163,7 +164,7 @@ export DSH_PROVIDER=maya
 export DSH_MODEL="$MAYA_MODEL"
 ```
 
-Both providers speak OpenAI Chat Completions by default. Set `MAYA_API` or `SATARATA_API` to `openai-responses` or `anthropic-messages` for another protocol. A large cold prefill can keep the engine busy for minutes before the first stream chunk, so both routes default to a 20-minute idle timeout; override it with `MAYA_STREAM_IDLE_MS` or `SATARATA_STREAM_IDLE_MS`. Credentials stay in the launch environment: no key or deployment URL is committed.
+Both providers speak OpenAI Chat Completions by default. Set `MAYA_API` or `SATARATA_API` to `openai-responses` or `anthropic-messages` for another protocol. A large cold prefill can keep the engine busy for minutes before the first stream chunk, so both routes default to a 20-minute idle timeout; override it with `MAYA_STREAM_IDLE_MS` or `SATARATA_STREAM_IDLE_MS`. `MAYA_REASONING` and `SATARATA_REASONING` set the route's default thinking level (default `high`); a call that names no level inherits it, while the prefill selector requests the least level the route supports, which is `off` here. Credentials stay in the launch environment: no key or deployment URL is committed.
 
 ## Automatic continuation
 

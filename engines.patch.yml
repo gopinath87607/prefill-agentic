@@ -17,11 +17,13 @@
 #
 # Both routes default to the OpenAI Chat Completions protocol. Set
 # SATARATA_API or MAYA_API to openai-completions, openai-responses, or
-# anthropic-messages when an engine speaks another protocol. The thinking
-# format defaults to DeepSeek's reasoning_content field; change or remove
-# `compat` when the engine reports reasoning differently. `contextWindow` sizes
-# compaction and the prefill budget, so it must describe the deployed model: a
-# value larger than the engine accepts fails at request time, not at load.
+# anthropic-messages when an engine speaks another protocol. Both templates
+# read `enable_thinking` and `reasoning_effort` from `chat_template_kwargs`,
+# which lets an auxiliary call really disable thinking instead of inheriting
+# the server default; the route's `reasoning` value is the default for calls
+# that name no effort. `contextWindow` sizes compaction and the prefill budget,
+# so it must describe the deployed model: a value larger than the engine
+# accepts fails at request time, not at load.
 #
 # A large prefill can occupy the engine for minutes before it emits the first
 # stream chunk, and the adapter's default 300,000 ms idle timeout kills such a
@@ -40,26 +42,56 @@
         baseURL: !!js process.env.SATARATA_BASE_URL
         apiKeyEnv: SATARATA_API_KEY
         streamIdleTimeoutMs: !!js Number(process.env.SATARATA_STREAM_IDLE_MS ?? 1200000)
+        # Conversation calls keep the engine's usual thinking unless the
+        # environment chooses another default; the prefill selector asks for
+        # the least supported level separately.
+        reasoning: !!js "process.env.SATARATA_REASONING ?? 'high'"
         compat:
-          thinkingFormat: deepseek
+          thinkingFormat: chat-template
+          chatTemplateKwargs:
+            enable_thinking:
+              $var: thinking.enabled
+            reasoning_effort:
+              $var: thinking.effort
+              omitWhenOff: true
         models:
           - id: !!js process.env.SATARATA_MODEL
             name: !!js process.env.SATARATA_MODEL
             contextWindow: !!js Number(process.env.SATARATA_CONTEXT_WINDOW ?? 1000000)
             maxTokens: !!js Number(process.env.SATARATA_MAX_TOKENS ?? 65536)
+            reasoningEfforts:
+              off:
+              low: low
+              high: high
+              max: max
       maya:
         displayName: Maya
         api: !!js process.env.MAYA_API ?? 'openai-completions'
         baseURL: !!js process.env.MAYA_BASE_URL
         apiKeyEnv: MAYA_API_KEY
         streamIdleTimeoutMs: !!js Number(process.env.MAYA_STREAM_IDLE_MS ?? 1200000)
+        # Conversation calls keep the engine's usual thinking unless the
+        # environment chooses another default; the prefill selector asks for
+        # the least supported level separately.
+        reasoning: !!js "process.env.MAYA_REASONING ?? 'high'"
         compat:
-          thinkingFormat: deepseek
+          thinkingFormat: chat-template
+          chatTemplateKwargs:
+            enable_thinking:
+              $var: thinking.enabled
+            reasoning_effort:
+              $var: thinking.effort
+              omitWhenOff: true
         models:
           - id: !!js process.env.MAYA_MODEL
             name: !!js process.env.MAYA_MODEL
             contextWindow: !!js Number(process.env.MAYA_CONTEXT_WINDOW ?? 1000000)
             maxTokens: !!js Number(process.env.MAYA_MAX_TOKENS ?? 65536)
+            reasoningEfforts:
+              off:
+              low: low
+              high: high
+              max: max
 
 # Agents created by entry points use this route. Set both variables to run the
 # other engine; a provider without its model id fails at load.

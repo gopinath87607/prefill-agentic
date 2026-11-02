@@ -45,7 +45,7 @@ kind: "package-reference"
 
 默认 `selection: 'model'` 时，一次辅助调用决定基线内容。插件扫描工作区，把请求文本与有界候选清单（路径与字节大小，按最浅优先排序）发送给该步骤记录的模型路由；同时配置 `selectorProvider` 与 `selectorModel` 时则发送给该配置路由。只有被选中的路径会被读取，答案中的顺序即优先顺序，模型为每个文件给出的简短理由会记录到文件记录中并显示在[预填充面板](../../client/ui-prefill/README.zh.md)。模型未选择的文件不会被读取，也不会进入快照；被选中但不适应预算的文件会列入路径索引。
 
-候选清单受 `selectorInputTokens` 限制：请求文本最多占该预算的一半，其余由候选行填充，因此超出预算的工作区只显示较浅的路径，模型无法选择未展示的路径。`selectorMaxFiles` 限制答案最多贡献多少个路径，`selectorMaxOutputTokens` 限制回复长度，调用必须在 `selectorTimeoutMs` 内完成。
+候选清单受 `selectorInputTokens` 限制：请求文本最多占该预算的一半，其余由候选行填充，因此超出预算的工作区只显示较浅的路径，模型无法选择未展示的路径。`selectorMaxFiles` 限制答案最多贡献多少个路径，`selectorMaxOutputTokens` 限制回复长度，调用必须在 `selectorTimeoutMs` 内完成。调用会请求路由支持的最低推理级别，因此默认进行推理的路由不会把推理花在文件选择上。
 
 选择调用从不进入对话；其确切请求与结果都是仅写入日志的会话事件（`prefill/selection-request` 与 `prefill/selection`），因此重放可以复现。无法运行或没有产生可用答案的调用会在同一步回退到确定性基线，面板会显示记录的原因：没有候选、没有请求文本、没有 `llm` 服务、没有路由、超时、流错误，或答案未命名任何可用路径。设置 `selection: 'deterministic'` 可跳过该调用，始终使用最浅优先顺序。
 

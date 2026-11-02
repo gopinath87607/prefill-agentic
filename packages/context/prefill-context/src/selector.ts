@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type {
-  ContentBlock, GenerateOptions, Message, TokenUsage,
+  ContentBlock, GenerateOptions, LlmResolvedModelInfo, Message, ReasoningEffortId, TokenUsage,
 } from '@deepseek-ai/dsh-llm'
 import { deadline, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPrefillConfig } from './config.ts'
@@ -45,6 +45,20 @@ export const PREFILL_SELECTION_SYSTEM = [
   'Do not choose a file only because it is large.',
   'Return an empty list when the request does not depend on workspace files.',
 ].join(' ')
+
+/**
+ * Select the route's least supported reasoning effort for a selection call.
+ *
+ * Selecting paths from a bounded manifest needs no extended thinking, and a
+ * selection that inherits a reasoning-heavy deployment default can outlast
+ * `selectorTimeoutMs` before it emits its JSON answer. The least supported
+ * level keeps the auxiliary call short without inventing an effort the route
+ * does not offer.
+ * @param model - the exact route the selection call would use.
+ * @returns the least supported effort, or undefined when the route reports none.
+ */
+const selectReasoningEffort = (model: Readonly<LlmResolvedModelInfo>): ReasoningEffortId | undefined =>
+  model.reasoning?.efforts[0]?.id
 
 /** Maximum characters kept for one model-written reason. */
 const MAX_REASON_CHARS = 200
@@ -187,7 +201,10 @@ export async function selectPrefillFiles(
       provider: route.provider,
       model: route.model,
       maxTokens: config.selectorMaxOutputTokens,
-    }, callDeadline.signal)
+    }, callDeadline.signal, (controls, model) => {
+      const effort = selectReasoningEffort(model)
+      return { ...controls, ...effort === undefined ? {} : { reasoningEffort: effort } }
+    })
   } catch (error: unknown) {
     signal.throwIfAborted()
     const fallback: PrefillSelectionFallback = timeoutOf(callDeadline.signal, PREFILL_SELECTION_TIMEOUT_CODE) === undefined

@@ -36,6 +36,11 @@
     # with their tools.
     agents: main
     guidance: true
+    # The selector is a real generation on the same engine. Even with its
+    # least reasoning effort selected, a full 2,048-token answer takes about
+    # 130 s at the measured ~16 output tokens/s, before prompt processing and
+    # any request already queued on the engine; the 30 s default cannot finish.
+    selectorTimeoutMs: 300000
     # Cached prefill tokens are converted to saved time at the measured cold
     # prompt rate, not the ~430 tokens/s append rate: reuse avoids the cold
     # processing of the prefix it serves.
