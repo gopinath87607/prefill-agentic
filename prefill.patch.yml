@@ -40,3 +40,22 @@
     # prompt rate, not the ~430 tokens/s append rate: reuse avoids the cold
     # processing of the prefix it serves.
     promptTokensPerSecond: 1000
+    # A configured list replaces the built-in defaults rather than extending
+    # them, so the defaults are repeated here; append workspace-specific
+    # patterns at the end. Keep this list in sync with
+    # DEFAULT_EXCLUDED_FILE_PATTERNS in src/config.ts.
+    excludedFilePatterns:
+      - '.env*'
+      - '!.env.example'
+      - '*.pem'
+      - '*.key'
+      - '*.p12'
+      - '*.pfx'
+      - '*.lock'
+      - '*-lock.json'
+      - '*-lock.yaml'
+      - 'npm-shrinkwrap.json'
+      - '*.min.js'
+      - '*.min.css'
+      - '*.map'
+      - '*.generated.*'

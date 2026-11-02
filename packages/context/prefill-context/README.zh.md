@@ -97,6 +97,8 @@ kind: "package-reference"
 | `excludedFileNames` | 环境、凭据与密钥文件 | 永不纳入的文件名，大小写不敏感 |
 | `excludedFilePatterns` | 锁文件、生成文件与机密模式 | 永不纳入的 gitignore 风格工作区相对模式；前导 `!` 可重新纳入 |
 
+配置列表字段时会替换其内置默认值，而不是在其后追加；因此部署方添加一个排除项时，需要重复仍然需要的默认条目。
+
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-prefill-context)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
 ### 启用该行

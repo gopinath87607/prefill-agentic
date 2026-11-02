@@ -97,6 +97,8 @@ The minimal mount needs no configuration and uses a 150,000-token baseline budge
 | `excludedFileNames` | environment, credential, and key files | Filenames never included, matched case-insensitively |
 | `excludedFilePatterns` | lock, generated, and secret patterns | Gitignore-style workspace-relative patterns never included; a leading `!` re-includes |
 
+A configured list field replaces its built-in default instead of extending it, so a deployment that adds one exclusion repeats the defaults it still needs.
+
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-prefill-context) is the exhaustive source for every accepted field and its JSDoc.
 
 ### Enabling the row
